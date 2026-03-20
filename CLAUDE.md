@@ -92,6 +92,18 @@ In gallery-dl v1.31.10, `Message.Queue = 6` (not 4 as in older docs). Facebook a
 
 These use `FacebookSetExtractor`, which chains through photos one-by-one via `next_photo_id`. By default gallery-dl stops early when it detects a large jump in photo IDs (assumes loop-back to album start). Fix: `gdl_config.set(("extractor", "facebook"), "loop", True)` — set in `scan_profile_images()` alongside the cookies config.
 
+### Rate limiting — `sleep-request`
+
+`scan_profile_images()` sets `sleep-request` in two places when `sleep_request > 0`:
+- `gdl_config.set(("extractor",), "sleep-request", ...)` — global fallback for all sites
+- `gdl_config.set(("extractor", "facebook"), "sleep-request", ...)` — explicit facebook override (required because facebook config may shadow the global setting)
+
+Recommended values for Facebook: 2–5s normal, 10s+ if seeing 429s or blocks.
+
+### Tooltip component
+
+CSS-only tooltips use `.tooltip-icon` + `data-tooltip="..."` attribute. Renders a small circular `i` badge; the tooltip bubble appears above on hover via `::after` pseudo-element. Styles in `style.css`. Use this pattern for any new UI option hints — no JS needed.
+
 ### Progress entry type discrimination
 
 Each `downloads_progress` entry has a `"type"` field (`"video"` or `"images"`) so the frontend renders different card layouts without any routing ambiguity.
