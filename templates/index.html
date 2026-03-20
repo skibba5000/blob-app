@@ -16,6 +16,7 @@
         <span class="logo-text">Blob</span>
       </div>
       <div class="header-meta">
+        <span id="gallery-dl-indicator" class="badge badge-hidden"></span>
         <span id="ffmpeg-indicator" class="badge badge-hidden"></span>
         <span id="yt-dlp-version" class="version-tag"></span>
       </div>
@@ -36,7 +37,13 @@
 
     <!-- URL Input -->
     <section class="card input-card">
-      <label class="input-label" for="url-input">Paste a video URL</label>
+      <!-- Mode tabs -->
+      <div class="mode-tabs">
+        <button id="tab-video" class="mode-tab active" onclick="switchMode('video')">Video</button>
+        <button id="tab-images" class="mode-tab" onclick="switchMode('images')">Images</button>
+      </div>
+
+      <label class="input-label" for="url-input" id="url-label">Paste a video URL</label>
       <div class="input-row">
         <input
           id="url-input"
@@ -52,7 +59,15 @@
         </button>
       </div>
       <div id="fetch-error" class="error-msg hidden"></div>
+
+      <!-- Cookie hint (images mode only) -->
+      <div id="cookie-hint" class="cookie-hint hidden">
+        Tip: If fewer images than expected are found, drop a <code>cookies.txt</code> file
+        (Netscape format) in the app folder and re-scan.
+      </div>
     </section>
+
+    <!-- ── VIDEO MODE ── -->
 
     <!-- Video Info Card -->
     <section id="video-info" class="card video-info-card hidden">
@@ -84,7 +99,30 @@
       </div>
     </section>
 
-    <!-- Active Downloads -->
+    <!-- ── IMAGES MODE ── -->
+
+    <!-- Profile Info Card -->
+    <section id="profile-section" class="card hidden">
+      <div class="profile-header">
+        <div class="profile-info">
+          <h2 id="profile-name" class="profile-name"></h2>
+          <p id="profile-meta" class="profile-meta"></p>
+        </div>
+        <div class="profile-actions">
+          <button id="select-toggle-btn" class="btn btn-secondary btn-sm" onclick="toggleAllImages()">Deselect All</button>
+          <button id="download-images-btn" class="btn btn-primary" onclick="startImageDownload()">
+            Download All (<span id="selected-count">0</span>)
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Image Grid -->
+    <section id="image-grid-section" class="card hidden">
+      <div id="image-grid" class="image-grid"></div>
+    </section>
+
+    <!-- ── SHARED: Active Downloads ── -->
     <div id="downloads-panel"></div>
 
     <!-- Download History -->

@@ -1,12 +1,26 @@
 import os
+import re
 import shutil
 import threading
+import urllib.request as urlreq
 import uuid
 import webbrowser
 from datetime import datetime
 
 import yt_dlp
 from flask import Flask, jsonify, render_template, request
+
+# gallery-dl (optional — needed for image scraping)
+try:
+    from gallery_dl import extractor as gdl_extractor
+    from gallery_dl import config as gdl_config
+    try:
+        from gallery_dl.extractor.message import Message as GdlMessage
+    except ImportError:
+        from gallery_dl.extractor import Message as GdlMessage  # older versions
+    GALLERY_DL_AVAILABLE = True
+except ImportError:
+    GALLERY_DL_AVAILABLE = False
 
 app = Flask(__name__)
 
@@ -22,6 +36,12 @@ FFMPEG_AVAILABLE = shutil.which("ffmpeg") is not None
 
 
 # --- Helpers ---
+
+def safe_filename(name):
+    """Sanitize a string for use as a filename or folder name."""
+    name = re.sub(r'[\\/:*?"<>|]', '_', str(name))
+    return name.strip('. ')[:80] or "profile"
+
 
 def format_bytes(size):
     if size is None:
@@ -196,6 +216,133 @@ def run_download(download_id, url, format_id, title, resolution):
                 downloads_progress[download_id]["error"] = str(e)
 
 
+# --- Image scraping ---
+
+def scan_profile_images(url, max_images=300):
+    """Extract image URLs from a profile URL using gallery-dl."""
+    gdl_config.clear()
+
+    # Auto-load cookies.txt from app directory if present (Netscape format)
+    cookies_file = os.path.join(os.path.dirname(__file__), "cookies.txt")
+    if os.path.exists(cookies_file):
+        gdl_config.set(("extractor",), "cookies", cookies_file)
+
+    ex = gdl_extractor.find(url)
+    if ex is None:
+        raise ValueError(
+            "No extractor found for this URL. "
+            "Supported sites include Instagram, Facebook, Twitter/X, and 100+ others."
+        )
+
+    images = []
+    profile_name = "profile"
+    platform = type(ex).__module__.split(".")[-1]
+
+    try:
+        for item in ex:
+            msg_type = item[0]
+            if msg_type == GdlMessage.Directory:
+                kwdict = item[1]
+                profile_name = (
+                    kwdict.get("username")
+                    or kwdict.get("user")
+                    or kwdict.get("uploader")
+                    or kwdict.get("owner")
+                    or kwdict.get("name")
+                    or "profile"
+                )
+            elif msg_type == GdlMessage.Url:
+                img_url = item[1]
+                kwdict = item[2]
+                ext = kwdict.get("extension", "jpg")
+                fname = kwdict.get("filename") or str(len(images) + 1)
+                images.append({
+                    "url": img_url,
+                    "filename": f"{fname}.{ext}",
+                    "thumbnail": img_url,
+                })
+                if len(images) >= max_images:
+                    break
+    except Exception:
+        pass  # Return whatever we found so far
+
+    return profile_name, platform, images
+
+
+def run_image_download(download_id, profile_url, profile_name, images):
+    """Download a list of images into downloads/{profile_name}/."""
+    folder_name = safe_filename(profile_name)
+    folder = os.path.join(DOWNLOADS_DIR, folder_name)
+    os.makedirs(folder, exist_ok=True)
+
+    total = len(images)
+    completed = 0
+    failed = 0
+    errors = []
+
+    for i, image in enumerate(images):
+        img_url = image["url"]
+        filename = safe_filename(image.get("filename", f"{i + 1}.jpg"))
+        filepath = os.path.join(folder, filename)
+
+        with progress_lock:
+            downloads_progress[download_id].update({
+                "status": "downloading",
+                "percent": round(i / total * 100, 1),
+                "current_file": filename,
+                "completed": completed,
+                "failed": failed,
+            })
+
+        try:
+            if os.path.exists(filepath):
+                completed += 1
+                continue
+            req = urlreq.Request(img_url, headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+                "Referer": profile_url,
+            })
+            with urlreq.urlopen(req, timeout=30) as resp:
+                with open(filepath, "wb") as f:
+                    while True:
+                        chunk = resp.read(8192)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+            completed += 1
+        except Exception as e:
+            failed += 1
+            errors.append(f"{filename}: {str(e)[:100]}")
+
+    final_status = "finished" if failed == 0 else ("partial" if completed > 0 else "error")
+    error_msg = f"All {failed} downloads failed" if completed == 0 and failed > 0 else ""
+
+    with progress_lock:
+        downloads_progress[download_id].update({
+            "status": final_status,
+            "percent": 100,
+            "completed": completed,
+            "failed": failed,
+            "current_file": "",
+            "errors": errors,
+            "folder": folder_name,
+            "error": error_msg,
+        })
+        if completed > 0:
+            download_history.insert(0, {
+                "title": f"{profile_name} — {completed} image{'s' if completed != 1 else ''}",
+                "url": profile_url,
+                "resolution": f"{completed} images",
+                "filesize": "—",
+                "filename": folder_name + "/",
+                "completed_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            })
+
+
 # --- Routes ---
 
 @app.route("/")
@@ -208,6 +355,7 @@ def api_status():
     return jsonify({
         "ffmpeg_available": FFMPEG_AVAILABLE,
         "yt_dlp_version": yt_dlp.version.__version__,
+        "gallery_dl_available": GALLERY_DL_AVAILABLE,
     })
 
 
@@ -257,6 +405,7 @@ def api_download():
     download_id = str(uuid.uuid4())
     with progress_lock:
         downloads_progress[download_id] = {
+            "type": "video",
             "status": "starting",
             "title": title,
             "percent": 0,
@@ -291,6 +440,80 @@ def api_progress(download_id):
 def api_history():
     with progress_lock:
         return jsonify(download_history)
+
+
+@app.route("/api/scrape-profile", methods=["POST"])
+def api_scrape_profile():
+    if not GALLERY_DL_AVAILABLE:
+        return jsonify({"error": "gallery-dl is not installed. Run: pip install gallery-dl"}), 400
+
+    data = request.get_json()
+    url = (data or {}).get("url", "").strip()
+    if not url:
+        return jsonify({"error": "No URL provided"}), 400
+
+    try:
+        profile_name, platform, images = scan_profile_images(url)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    if not images:
+        return jsonify({
+            "error": (
+                "No images found. The profile may be private, or Instagram/Facebook "
+                "may require login. Try adding a cookies.txt file to the app folder."
+            )
+        }), 400
+
+    return jsonify({
+        "profile_name": profile_name,
+        "platform": platform,
+        "image_count": len(images),
+        "images": images,
+    })
+
+
+@app.route("/api/download-images", methods=["POST"])
+def api_download_images():
+    if not GALLERY_DL_AVAILABLE:
+        return jsonify({"error": "gallery-dl is not installed"}), 400
+
+    data = request.get_json()
+    profile_url = (data or {}).get("url", "").strip()
+    profile_name = (data or {}).get("profile_name", "profile").strip()
+    images = (data or {}).get("images", [])
+
+    if not profile_url:
+        return jsonify({"error": "No URL provided"}), 400
+    if not images:
+        return jsonify({"error": "No images to download"}), 400
+
+    download_id = str(uuid.uuid4())
+    with progress_lock:
+        downloads_progress[download_id] = {
+            "type": "images",
+            "status": "starting",
+            "title": profile_name,
+            "percent": 0,
+            "total": len(images),
+            "completed": 0,
+            "failed": 0,
+            "current_file": "",
+            "errors": [],
+            "folder": "",
+            "error": "",
+        }
+
+    thread = threading.Thread(
+        target=run_image_download,
+        args=(download_id, profile_url, profile_name, images),
+        daemon=True,
+    )
+    thread.start()
+
+    return jsonify({"download_id": download_id})
 
 
 @app.route("/api/open-downloads")

@@ -499,6 +499,149 @@ body {
   transform: translateX(-50%) translateY(0);
 }
 
+/* ── Mode tabs ── */
+.mode-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px;
+  width: fit-content;
+}
+.mode-tab {
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 18px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.mode-tab:hover { color: var(--text); }
+.mode-tab.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* ── Cookie hint ── */
+.cookie-hint {
+  margin-top: 10px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.cookie-hint code {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 5px;
+  font-family: monospace;
+  font-size: 0.85em;
+  color: var(--success);
+}
+
+/* ── Profile card ── */
+.profile-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.profile-info { flex: 1; min-width: 0; }
+.profile-name {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.profile-meta {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+.profile-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ── Image grid ── */
+.image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+}
+.image-cell {
+  aspect-ratio: 1;
+  position: relative;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 2px solid transparent;
+  transition: border-color 0.15s;
+  background: var(--surface2);
+}
+.image-cell:hover { border-color: rgba(108, 99, 255, 0.5); }
+.image-cell.selected { border-color: var(--accent); }
+.image-cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.image-check {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 20px;
+  height: 20px;
+  background: var(--accent);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: #fff;
+  font-weight: 700;
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+.image-cell.selected .image-check { opacity: 1; }
+
+/* ── Image download card extras ── */
+.download-card-type-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: rgba(108, 99, 255, 0.15);
+  color: var(--accent);
+  border: 1px solid rgba(108, 99, 255, 0.3);
+  padding: 2px 8px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+.img-count {
+  font-size: 0.83rem;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+.current-file {
+  margin-top: 5px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-height: 1em;
+}
+
 /* ── Utilities ── */
 .hidden { display: none !important; }
 
