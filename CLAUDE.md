@@ -54,8 +54,10 @@ When `filesize` and `filesize_approx` are both missing, the app estimates size f
 | `/api/history` | GET | Completed downloads list |
 | `/api/open-downloads` | GET | Opens `./downloads/` in Explorer |
 | `/api/scrape-profile` | POST | `{ url }` → `{ scan_id }` — starts async scan, returns immediately |
-| `/api/scan-progress/<id>` | GET | Scan progress; `status: scanning` returns `{ found }`, `status: done` returns full result with `images` |
+| `/api/scan-progress/<id>` | GET | Shared poll endpoint for image and channel scans; `status: scanning` returns lightweight progress (includes `scan_type`), `status: done` returns full result with `images` or `videos` |
 | `/api/download-images` | POST | `{ url, profile_name, images }` → `{ download_id }` |
+| `/api/scan-channel` | POST | `{ url }` → `{ scan_id }` — uses yt-dlp `extract_flat` to list channel/playlist videos; reuses `scan_progress` dict with `scan_type: "channel"` |
+| `/api/start-channel-downloads` | POST | `{ channel_name, videos: [{url, title}] }` → `{ download_id }` — sequential download, single progress card with per-video sub-progress |
 
 ## Images mode (gallery-dl)
 
@@ -106,7 +108,7 @@ CSS-only tooltips use `.tooltip-icon` + `data-tooltip="..."` attribute. Renders 
 
 ### Progress entry type discrimination
 
-Each `downloads_progress` entry has a `"type"` field (`"video"` or `"images"`) so the frontend renders different card layouts without any routing ambiguity.
+Each `downloads_progress` entry has a `"type"` field (`"video"`, `"images"`, or `"channel"`) so the frontend renders different card layouts without any routing ambiguity.
 
 Image progress entry structure:
 ```python
@@ -126,6 +128,38 @@ Image progress entry structure:
 ```
 
 Images land in `./downloads/<profile_name>/`.
+
+Channel progress entry structure:
+```python
+{
+    "type": "channel",
+    "status": "starting" | "downloading" | "done" | "partial" | "error",
+    "title": "Channel Name — N videos",
+    "percent": 0-100,          # overall progress across all videos
+    "total": N,
+    "completed": N,
+    "failed": N,
+    "current_title": "",       # title of video currently downloading
+    "current_percent": 0-100,  # progress within the current video
+    "errors": [],
+    "error": "",
+}
+```
+
+Channel videos land in `./downloads/` (flat, same as single video downloads).
+
+## Channel mode (yt-dlp extract_flat)
+
+The **Channel** tab lets users scan a YouTube channel or playlist URL:
+1. User pastes channel URL → "Scan Channel" → calls `/api/scan-channel`, which spawns a thread and returns `{ scan_id }` immediately
+2. Frontend polls `/api/scan-progress/<scan_id>` (same endpoint as images); timer shows e.g. "8s · 47 videos found"
+3. yt-dlp `extract_flat="in_playlist"` fetches all video metadata without downloading; `playlistend` caps at 500 by default
+4. Thumbnails: entry.thumbnail if present, otherwise constructed as `https://i.ytimg.com/vi/{id}/mqdefault.jpg`
+5. When scan finishes, `status: "done"` response includes `videos` list; frontend renders 16:9 video card grid
+6. User selects/deselects videos, clicks "Download Selected"
+7. `run_channel_download()` downloads videos sequentially using `bestvideo+bestaudio/best` — always best quality; single progress card with overall bar + per-video sub-bar
+
+The `scan_progress` dict entry for channel scans includes `"scan_type": "channel"` to distinguish from image scans. The `api_scan_progress` endpoint uses `.get()` with defaults for all fields so it handles both scan types.
 
 ## GitHub
 
