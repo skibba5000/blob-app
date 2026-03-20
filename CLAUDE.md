@@ -53,16 +53,19 @@ When `filesize` and `filesize_approx` are both missing, the app estimates size f
 | `/api/progress/<id>` | GET | Current download progress |
 | `/api/history` | GET | Completed downloads list |
 | `/api/open-downloads` | GET | Opens `./downloads/` in Explorer |
-| `/api/scrape-profile` | POST | `{ url }` → `{ profile_name, platform, image_count, images }` |
+| `/api/scrape-profile` | POST | `{ url }` → `{ scan_id }` — starts async scan, returns immediately |
+| `/api/scan-progress/<id>` | GET | Scan progress; `status: scanning` returns `{ found }`, `status: done` returns full result with `images` |
 | `/api/download-images` | POST | `{ url, profile_name, images }` → `{ download_id }` |
 
 ## Images mode (gallery-dl)
 
 The UI has two tabs: **Video** and **Images**. Images mode:
 
-1. User pastes a profile URL → "Scan Profile" → calls `/api/scrape-profile` (synchronous)
-2. gallery-dl extractor iterates `(Message.Directory, ...)` and `(Message.Url, url, ...)` tuples to collect image URLs
-3. Returns a thumbnail grid; user can deselect images then click "Download All"
+1. User pastes a profile URL → "Scan Profile" → calls `/api/scrape-profile`, which spawns a thread and returns `{ scan_id }` immediately
+2. Frontend polls `/api/scan-progress/<scan_id>` every 500ms; timer shows e.g. "12s · 31 images found" as images accumulate
+3. gallery-dl extractor iterates `(Message.Directory, ...)` and `(Message.Url, url, ...)` tuples to collect image URLs; progress written to `scan_progress` dict (protected by `scan_lock`) after each image
+4. When scan finishes, poll response includes full `images` list; frontend renders thumbnail grid
+5. User can deselect images then click "Download All"
 4. `/api/download-images` spawns a thread using `urllib.request` to download each image; tracks per-image progress
 
 ### gallery-dl import quirk
@@ -84,6 +87,10 @@ The app checks for both `cookies.txt` and `cookies.txt.txt` — Windows often hi
 ### Message.Queue — recursive album handling
 
 In gallery-dl v1.31.10, `Message.Queue = 6` (not 4 as in older docs). Facebook and similar hierarchical sites return Queue messages pointing to sub-pages (e.g. individual albums) rather than direct image URLs. The `scan_profile_images()` function in `app.py` uses a recursive `process_extractor()` inner function to follow Queue messages: for each queued URL it calls `gdl_extractor.find()` on it and processes the child extractor. A `visited` set prevents infinite loops.
+
+### Facebook album URLs (`/media/set/?set=...`)
+
+These use `FacebookSetExtractor`, which chains through photos one-by-one via `next_photo_id`. By default gallery-dl stops early when it detects a large jump in photo IDs (assumes loop-back to album start). Fix: `gdl_config.set(("extractor", "facebook"), "loop", True)` — set in `scan_profile_images()` alongside the cookies config.
 
 ### Progress entry type discrimination
 
