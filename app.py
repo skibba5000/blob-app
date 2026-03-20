@@ -220,7 +220,7 @@ def run_download(download_id, url, format_id, title, resolution):
 
 # --- Image scraping ---
 
-def scan_profile_images(url, max_images=300, scan_id=None):
+def scan_profile_images(url, max_images=10000, scan_id=None):
     """Extract image URLs from a profile URL using gallery-dl."""
     gdl_config.clear()
 
