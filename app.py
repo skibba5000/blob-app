@@ -238,6 +238,11 @@ def scan_profile_images(url, max_images=300):
     else:
         print(f"[gallery-dl] No cookies file found in: {app_dir}")
 
+    # Facebook album pagination: by default gallery-dl stops early when it
+    # detects a large jump in photo IDs (assumes loop-back). Setting loop=True
+    # tells it to keep following next_photo_id through the whole album.
+    gdl_config.set(("extractor", "facebook"), "loop", True)
+
     ex = gdl_extractor.find(url)
     if ex is None:
         raise ValueError(
