@@ -304,8 +304,9 @@ def scan_profile_images(urls, max_images=10000, scan_id=None):
         parts = [p for p in urlparse(url).path.split("/") if p]
         return next((p for p in parts if p.lower() not in _PROFILE_SKIP_WORDS), None)
 
-    def process_extractor(ext):
+    def process_extractor(ext, parent_album=None):
         nonlocal profile_name
+        current_album = parent_album
         for item in ext:
             msg_type = item[0]
 
@@ -320,6 +321,12 @@ def scan_profile_images(urls, max_images=10000, scan_id=None):
                         or kwdict.get("name")
                         or profile_name
                     )
+                    album_raw = (
+                        kwdict.get("album")
+                        or kwdict.get("album_name")
+                        or kwdict.get("title")
+                    )
+                    current_album = safe_filename(album_raw) if album_raw else parent_album
 
             elif msg_type == GdlMessage.Url:
                 img_url = item[1]
@@ -333,6 +340,7 @@ def scan_profile_images(urls, max_images=10000, scan_id=None):
                     "url": img_url,
                     "filename": f"{fname}.{ext_name}",
                     "thumbnail": img_url,
+                    "album": current_album,
                 })
                 if scan_id is not None:
                     with scan_lock:
@@ -343,12 +351,18 @@ def scan_profile_images(urls, max_images=10000, scan_id=None):
 
             elif msg_type == GdlMessage.Queue:
                 queue_url = item[1]
+                queue_kwdict = item[2] if len(item) > 2 and isinstance(item[2], dict) else {}
+                album_hint = (
+                    queue_kwdict.get("album")
+                    or queue_kwdict.get("album_name")
+                    or queue_kwdict.get("title")
+                )
                 if queue_url not in visited:
                     visited.add(queue_url)
                     print(f"[gallery-dl] Following queue: {queue_url[:100]}")
                     child_ex = gdl_extractor.find(queue_url)
                     if child_ex:
-                        process_extractor(child_ex)
+                        process_extractor(child_ex, parent_album=safe_filename(album_hint) if album_hint else None)
                         if len(images) >= max_images:
                             return
 
@@ -397,7 +411,13 @@ def run_image_download(download_id, profile_url, profile_name, images):
     for i, image in enumerate(images):
         img_url = image["url"]
         filename = safe_filename(image.get("filename", f"{i + 1}.jpg"))
-        filepath = os.path.join(folder, filename)
+        album = image.get("album")
+        if album:
+            save_dir = os.path.join(folder, album)
+            os.makedirs(save_dir, exist_ok=True)
+        else:
+            save_dir = folder
+        filepath = os.path.join(save_dir, filename)
 
         with progress_lock:
             downloads_progress[download_id].update({
