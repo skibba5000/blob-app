@@ -220,8 +220,56 @@ def run_download(download_id, url, format_id, title, resolution):
 
 # --- Image scraping ---
 
-def scan_profile_images(url, max_images=10000, scan_id=None):
-    """Extract image URLs from a profile URL using gallery-dl."""
+_PROFILE_SKIP_WORDS = {
+    "photos", "photos_albums", "photos_of", "albums", "videos", "reels",
+    "posts", "tagged", "media", "set", "pg", "story", "stories",
+    "highlights", "saved", "explore", "about", "friends", "groups",
+    "home", "timeline",
+}
+
+
+def expand_facebook_urls(url):
+    """Given any Facebook profile URL, return the full set of photo-area URLs to scan."""
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    if "facebook.com" not in parsed.netloc.lower():
+        return [url]
+    parts = [p for p in parsed.path.split("/") if p]
+    username = next((p for p in parts if p.lower() not in _PROFILE_SKIP_WORDS), None)
+    if not username:
+        return [url]
+    base = f"https://www.facebook.com/{username}"
+    return [
+        f"{base}/photos",
+        f"{base}/photos_albums",
+        f"{base}/photos_of",
+    ]
+
+
+def _scan_step_label(url, index, total):
+    """Human-readable label for which URL is currently being scanned."""
+    from urllib.parse import urlparse
+    segment = urlparse(url).path.rstrip("/").rsplit("/", 1)[-1]
+    label_map = {
+        "photos": "Scanning photos",
+        "photos_albums": "Scanning albums",
+        "photos_of": "Scanning tagged photos",
+    }
+    label = label_map.get(segment, f"Scanning ({index + 1}/{total})")
+    if total > 1:
+        label += f" ({index + 1}/{total})"
+    return label
+
+
+def scan_profile_images(urls, max_images=10000, scan_id=None):
+    """Extract image URLs from one or more profile URLs using gallery-dl.
+
+    urls can be a single URL string or a list of URLs. When multiple URLs are
+    given (e.g. expanded Facebook photo areas), results are deduplicated by URL.
+    """
+    if isinstance(urls, str):
+        urls = [urls]
+
     gdl_config.clear()
 
     # Auto-load cookies.txt from app directory if present (Netscape format)
@@ -245,29 +293,18 @@ def scan_profile_images(url, max_images=10000, scan_id=None):
     # tells it to keep following next_photo_id through the whole album.
     gdl_config.set(("extractor", "facebook"), "loop", True)
 
-    ex = gdl_extractor.find(url)
-    if ex is None:
-        raise ValueError(
-            "No extractor found for this URL. "
-            "Supported sites include Instagram, Facebook, Twitter/X, and 100+ others."
-        )
-
-    print(f"[gallery-dl] Extractor: {type(ex).__name__} for URL: {url}")
-
     images = []
-    platform = type(ex).__module__.split(".")[-1]
-    visited = set()
+    seen_image_urls = set()   # deduplication across multiple source URLs
+    platform = "unknown"
+    profile_name = "profile"
+    visited = set()           # prevents revisiting the same album from multiple entry points
 
-    # Try to extract a profile name from the URL as a fallback
-    from urllib.parse import urlparse
-    _path_parts = [p for p in urlparse(url).path.split("/") if p]
-    _skip_words = {"photos", "photos_albums", "albums", "videos", "reels", "posts", "tagged",
-                   "media", "set", "pg", "story", "stories", "highlights", "saved", "explore"}
-    _url_profile_name = next((p for p in _path_parts if p.lower() not in _skip_words), None)
-    profile_name = _url_profile_name or "profile"
+    def _url_fallback_name(url):
+        from urllib.parse import urlparse
+        parts = [p for p in urlparse(url).path.split("/") if p]
+        return next((p for p in parts if p.lower() not in _PROFILE_SKIP_WORDS), None)
 
     def process_extractor(ext):
-        """Iterate an extractor, recursively following Queue messages."""
         nonlocal profile_name
         for item in ext:
             msg_type = item[0]
@@ -286,6 +323,9 @@ def scan_profile_images(url, max_images=10000, scan_id=None):
 
             elif msg_type == GdlMessage.Url:
                 img_url = item[1]
+                if img_url in seen_image_urls:
+                    continue
+                seen_image_urls.add(img_url)
                 kwdict = item[2] if len(item) > 2 and isinstance(item[2], dict) else {}
                 ext_name = kwdict.get("extension", "jpg")
                 fname = kwdict.get("filename") or str(len(images) + 1)
@@ -312,7 +352,32 @@ def scan_profile_images(url, max_images=10000, scan_id=None):
                         if len(images) >= max_images:
                             return
 
-    process_extractor(ex)
+    for i, url in enumerate(urls):
+        if scan_id is not None:
+            with scan_lock:
+                scan_progress[scan_id]["scan_label"] = _scan_step_label(url, i, len(urls))
+
+        ex = gdl_extractor.find(url)
+        if ex is None:
+            if len(urls) == 1:
+                raise ValueError(
+                    "No extractor found for this URL. "
+                    "Supported sites include Instagram, Facebook, Twitter/X, and 100+ others."
+                )
+            print(f"[gallery-dl] No extractor for {url}, skipping.")
+            continue
+
+        print(f"[gallery-dl] Extractor: {type(ex).__name__} for URL: {url}")
+        platform = type(ex).__module__.split(".")[-1]
+
+        # Use URL path as profile name fallback only if we don't have one yet
+        if profile_name == "profile":
+            profile_name = _url_fallback_name(url) or "profile"
+
+        process_extractor(ex)
+
+        if len(images) >= max_images:
+            break
 
     print(f"[gallery-dl] Done. {len(images)} images found, {len(visited)} albums followed.")
     return profile_name, platform, images
@@ -498,8 +563,12 @@ def api_scrape_profile():
 
     data = request.get_json()
     url = (data or {}).get("url", "").strip()
+    deep_scan = bool((data or {}).get("deep_scan", False))
     if not url:
         return jsonify({"error": "No URL provided"}), 400
+
+    urls_to_scan = expand_facebook_urls(url) if deep_scan else [url]
+    print(f"[scrape] deep_scan={deep_scan}, URLs: {urls_to_scan}")
 
     scan_id = str(uuid.uuid4())
     with scan_lock:
@@ -508,13 +577,14 @@ def api_scrape_profile():
             "found": 0,
             "profile_name": "",
             "platform": "",
+            "scan_label": "",
             "images": [],
             "error": "",
         }
 
     def run_scan():
         try:
-            profile_name, platform, images = scan_profile_images(url, scan_id=scan_id)
+            profile_name, platform, images = scan_profile_images(urls_to_scan, scan_id=scan_id)
             if not images:
                 with scan_lock:
                     scan_progress[scan_id].update({
@@ -561,6 +631,7 @@ def api_scan_progress(scan_id):
         "found": entry["found"],
         "profile_name": entry["profile_name"],
         "platform": entry["platform"],
+        "scan_label": entry.get("scan_label", ""),
         "error": entry["error"],
     })
 

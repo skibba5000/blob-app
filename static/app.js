@@ -42,6 +42,7 @@ function switchMode(mode) {
     btnText.textContent = 'Fetch Formats';
     input.placeholder = 'https://www.youtube.com/watch?v=...';
     hint.classList.add('hidden');
+    document.getElementById('deep-scan-row').classList.add('hidden');
     hideEl('profile-section');
     hideEl('image-grid-section');
   } else {
@@ -49,6 +50,7 @@ function switchMode(mode) {
     btnText.textContent = 'Scan Profile';
     input.placeholder = 'https://www.instagram.com/username/';
     hint.classList.remove('hidden');
+    document.getElementById('deep-scan-row').classList.remove('hidden');
     hideEl('video-info');
     hideEl('formats-section');
   }
@@ -267,10 +269,11 @@ async function onScanProfile() {
   // Start scan, get scan_id back immediately
   let scanId;
   try {
+    const deepScan = document.getElementById('deep-scan-checkbox').checked;
     const res = await fetch('/api/scrape-profile', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ url, deep_scan: deepScan }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -299,9 +302,10 @@ async function onScanProfile() {
       // Update timer + live count
       const sec = Math.floor((Date.now() - scanStart) / 1000);
       const timeStr = sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${sec % 60}s`;
+      const stepLabel = data.scan_label ? `${data.scan_label} · ` : '';
       timerEl.textContent = data.found > 0
-        ? `${timeStr} · ${data.found} image${data.found !== 1 ? 's' : ''} found`
-        : timeStr;
+        ? `${stepLabel}${timeStr} · ${data.found} image${data.found !== 1 ? 's' : ''} found`
+        : stepLabel + timeStr;
 
       if (data.status === 'done') {
         clearInterval(pollTimer);

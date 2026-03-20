@@ -537,6 +537,31 @@ body {
   color: #fff;
 }
 
+/* ── Deep scan toggle ── */
+.deep-scan-row {
+  margin-top: 10px;
+}
+.deep-scan-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+.deep-scan-label input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.deep-scan-hint {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
 /* ── Cookie hint ── */
 .cookie-hint {
   margin-top: 10px;
