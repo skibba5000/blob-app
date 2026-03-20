@@ -296,6 +296,7 @@ def scan_profile_images(urls, max_images=10000, scan_id=None, sleep_request=0.0)
 
     if sleep_request > 0:
         gdl_config.set(("extractor",), "sleep-request", sleep_request)
+        gdl_config.set(("extractor", "facebook"), "sleep-request", sleep_request)
 
     images = []
     seen_image_urls = set()   # deduplication across multiple source URLs

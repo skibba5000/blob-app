@@ -599,6 +599,51 @@ body {
   flex-basis: 100%;
 }
 
+/* ── Tooltips ── */
+.tooltip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.1);
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-style: normal;
+  cursor: help;
+  flex-shrink: 0;
+  line-height: 1;
+  user-select: none;
+}
+.tooltip-icon::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1c1c2e;
+  color: #d0d0e0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  padding: 8px 11px;
+  border-radius: 7px;
+  white-space: pre-line;
+  width: max-content;
+  max-width: 260px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 200;
+  border: 1px solid rgba(255,255,255,0.1);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.5);
+  text-align: left;
+}
+.tooltip-icon:hover::after {
+  opacity: 1;
+}
+
 /* ── Cookie hint ── */
 .cookie-hint {
   margin-top: 10px;

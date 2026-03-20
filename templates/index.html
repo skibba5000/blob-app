@@ -67,6 +67,7 @@
           <input type="checkbox" id="deep-scan-checkbox" />
           Auto-discover all photo areas
           <span class="deep-scan-hint">(Facebook: scans photos, albums &amp; tagged photos separately)</span>
+          <span class="tooltip-icon" data-tooltip="Facebook only: instead of scanning one page, Blob scans three areas separately — Photos, Albums, and Tagged Photos.&#10;&#10;Slower, but finds images that wouldn't appear on the main profile page.&#10;&#10;Not needed for Instagram or other sites.">i</span>
         </label>
       </div>
 
@@ -74,15 +75,16 @@
       <div id="rate-limit-row" class="rate-limit-row hidden">
         <label class="rate-limit-field">
           <span>Request delay</span>
+          <span class="tooltip-icon" data-tooltip="Seconds to wait between each HTTP request during scan and download.&#10;&#10;• 0s — no delay (fast, may trigger rate limits)&#10;• 2–5s — recommended for Facebook&#10;• 10s+ — if you're seeing blocks or 429 errors&#10;&#10;Applied to gallery-dl scan requests and image downloads.">i</span>
           <input type="number" id="sleep-request" min="0" max="30" step="0.5" value="0" />
           <span class="rate-limit-unit">s</span>
         </label>
         <label class="rate-limit-field">
           <span>Batch size</span>
+          <span class="tooltip-icon" data-tooltip="Pause for longer after every N images downloaded.&#10;&#10;• 0 — no batching (continuous)&#10;• 10–50 — good for large Facebook albums&#10;&#10;Pause duration = 3× request delay (min 5s).&#10;Helps avoid triggering rate limits on long downloads.">i</span>
           <input type="number" id="batch-size" min="0" max="10000" step="1" value="0" placeholder="0 = all" />
           <span class="rate-limit-unit">images</span>
         </label>
-        <span class="rate-limit-hint">Delay between requests &amp; downloads. Batch size = pause after every N downloads (0 = no batching).</span>
       </div>
 
       <!-- Cookie hint (images mode only) -->
