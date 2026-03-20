@@ -189,14 +189,14 @@ function renderFormats(formats) {
       <td>${fmt.ext.toUpperCase()}</td>
       <td>${fmt.filesize}</td>
       <td>${fmt.fps ? fmt.fps + ' fps' : '—'}</td>
-      <td>${typeChip(fmt.type)}</td>
+      <td>${typeChip(fmt.type, fmt.needs_merge)}</td>
       <td>
         <button
           class="btn btn-download"
           ${disableBtn ? 'disabled title="Requires FFmpeg"' : ''}
           onclick="startDownload('${fmt.format_id}', '${esc(fmt.resolution)}', ${fmt.needs_merge})"
         >Download</button>
-        ${disableBtn ? '<div class="ffmpeg-note">Requires FFmpeg</div>' : ''}
+        ${disableBtn ? '<div class="ffmpeg-note">Needs FFmpeg to add audio</div>' : ''}
       </td>
     `;
     tbody.appendChild(row);
@@ -212,7 +212,12 @@ function friendlyResolution(fmt) {
   return '?';
 }
 
-function typeChip(type) {
+function typeChip(type, needsMerge) {
+  // Video-only formats are downloaded with best audio when FFmpeg is available,
+  // so show them as "Video + Audio" — the merge happens automatically.
+  if (type === 'video-only' && needsMerge && ffmpegAvailable) {
+    return `<span class="type-chip type-va">Video + Audio</span>`;
+  }
   const map = {
     'video+audio': ['type-va', 'Video + Audio'],
     'video-only':  ['type-vo', 'Video only'],
