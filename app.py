@@ -2,6 +2,7 @@ import os
 import re
 import shutil
 import threading
+import time
 import urllib.request as urlreq
 import uuid
 import webbrowser
@@ -261,7 +262,7 @@ def _scan_step_label(url, index, total):
     return label
 
 
-def scan_profile_images(urls, max_images=10000, scan_id=None):
+def scan_profile_images(urls, max_images=10000, scan_id=None, sleep_request=0.0):
     """Extract image URLs from one or more profile URLs using gallery-dl.
 
     urls can be a single URL string or a list of URLs. When multiple URLs are
@@ -292,6 +293,9 @@ def scan_profile_images(urls, max_images=10000, scan_id=None):
     # detects a large jump in photo IDs (assumes loop-back). Setting loop=True
     # tells it to keep following next_photo_id through the whole album.
     gdl_config.set(("extractor", "facebook"), "loop", True)
+
+    if sleep_request > 0:
+        gdl_config.set(("extractor",), "sleep-request", sleep_request)
 
     images = []
     seen_image_urls = set()   # deduplication across multiple source URLs
@@ -397,8 +401,12 @@ def scan_profile_images(urls, max_images=10000, scan_id=None):
     return profile_name, platform, images
 
 
-def run_image_download(download_id, profile_url, profile_name, images):
-    """Download a list of images into downloads/{profile_name}/."""
+def run_image_download(download_id, profile_url, profile_name, images, sleep_request=0.0, batch_size=0):
+    """Download a list of images into downloads/{profile_name}/.
+
+    sleep_request: seconds to sleep between each download (0 = no delay).
+    batch_size: pause for 3x sleep_request (min 5s) after every N downloads (0 = no batching).
+    """
     folder_name = safe_filename(profile_name)
     folder = os.path.join(DOWNLOADS_DIR, folder_name)
     os.makedirs(folder, exist_ok=True)
@@ -407,6 +415,7 @@ def run_image_download(download_id, profile_url, profile_name, images):
     completed = 0
     failed = 0
     errors = []
+    batch_pause = max(5.0, sleep_request * 3) if sleep_request > 0 else 5.0
 
     for i, image in enumerate(images):
         img_url = image["url"]
@@ -451,6 +460,14 @@ def run_image_download(download_id, profile_url, profile_name, images):
         except Exception as e:
             failed += 1
             errors.append(f"{filename}: {str(e)[:100]}")
+
+        # Per-request delay
+        if sleep_request > 0 and i < total - 1:
+            time.sleep(sleep_request)
+
+        # Batch pause: after every batch_size downloads, sleep longer
+        if batch_size > 0 and (i + 1) % batch_size == 0 and i < total - 1:
+            time.sleep(batch_pause)
 
     final_status = "finished" if failed == 0 else ("partial" if completed > 0 else "error")
     error_msg = f"All {failed} downloads failed" if completed == 0 and failed > 0 else ""
@@ -584,11 +601,12 @@ def api_scrape_profile():
     data = request.get_json()
     url = (data or {}).get("url", "").strip()
     deep_scan = bool((data or {}).get("deep_scan", False))
+    sleep_request = float((data or {}).get("sleep_request", 0) or 0)
     if not url:
         return jsonify({"error": "No URL provided"}), 400
 
     urls_to_scan = expand_facebook_urls(url) if deep_scan else [url]
-    print(f"[scrape] deep_scan={deep_scan}, URLs: {urls_to_scan}")
+    print(f"[scrape] deep_scan={deep_scan}, sleep_request={sleep_request}s, URLs: {urls_to_scan}")
 
     scan_id = str(uuid.uuid4())
     with scan_lock:
@@ -604,7 +622,7 @@ def api_scrape_profile():
 
     def run_scan():
         try:
-            profile_name, platform, images = scan_profile_images(urls_to_scan, scan_id=scan_id)
+            profile_name, platform, images = scan_profile_images(urls_to_scan, scan_id=scan_id, sleep_request=sleep_request)
             if not images:
                 with scan_lock:
                     scan_progress[scan_id].update({
@@ -665,6 +683,8 @@ def api_download_images():
     profile_url = (data or {}).get("url", "").strip()
     profile_name = (data or {}).get("profile_name", "profile").strip()
     images = (data or {}).get("images", [])
+    sleep_request = float((data or {}).get("sleep_request", 0) or 0)
+    batch_size = int((data or {}).get("batch_size", 0) or 0)
 
     if not profile_url:
         return jsonify({"error": "No URL provided"}), 400
@@ -689,7 +709,7 @@ def api_download_images():
 
     thread = threading.Thread(
         target=run_image_download,
-        args=(download_id, profile_url, profile_name, images),
+        args=(download_id, profile_url, profile_name, images, sleep_request, batch_size),
         daemon=True,
     )
     thread.start()

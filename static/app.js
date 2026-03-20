@@ -44,6 +44,7 @@ function switchMode(mode) {
     input.placeholder = 'https://www.youtube.com/watch?v=...';
     hint.classList.add('hidden');
     document.getElementById('deep-scan-row').classList.add('hidden');
+    document.getElementById('rate-limit-row').classList.add('hidden');
     hideEl('profile-section');
     hideEl('image-grid-section');
   } else {
@@ -52,6 +53,7 @@ function switchMode(mode) {
     input.placeholder = 'https://www.instagram.com/username/';
     hint.classList.remove('hidden');
     document.getElementById('deep-scan-row').classList.remove('hidden');
+    document.getElementById('rate-limit-row').classList.remove('hidden');
     hideEl('video-info');
     hideEl('formats-section');
   }
@@ -272,10 +274,12 @@ async function onScanProfile() {
   let scanId;
   try {
     const deepScan = document.getElementById('deep-scan-checkbox').checked;
+    const sleepRequest = parseFloat(document.getElementById('sleep-request').value) || 0;
+    const batchSize = parseInt(document.getElementById('batch-size').value, 10) || 0;
     const res = await fetch('/api/scrape-profile', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, deep_scan: deepScan }),
+      body: JSON.stringify({ url, deep_scan: deepScan, sleep_request: sleepRequest, batch_size: batchSize }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -541,6 +545,8 @@ async function startImageDownload() {
         url: currentUrl,
         profile_name: scannedProfile.profile_name,
         images: imagesToDownload,
+        sleep_request: parseFloat(document.getElementById('sleep-request').value) || 0,
+        batch_size: parseInt(document.getElementById('batch-size').value, 10) || 0,
       }),
     });
     const data = await res.json();

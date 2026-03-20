@@ -70,6 +70,21 @@
         </label>
       </div>
 
+      <!-- Rate limiting options (images mode only) -->
+      <div id="rate-limit-row" class="rate-limit-row hidden">
+        <label class="rate-limit-field">
+          <span>Request delay</span>
+          <input type="number" id="sleep-request" min="0" max="30" step="0.5" value="0" />
+          <span class="rate-limit-unit">s</span>
+        </label>
+        <label class="rate-limit-field">
+          <span>Batch size</span>
+          <input type="number" id="batch-size" min="0" max="10000" step="1" value="0" placeholder="0 = all" />
+          <span class="rate-limit-unit">images</span>
+        </label>
+        <span class="rate-limit-hint">Delay between requests &amp; downloads. Batch size = pause after every N downloads (0 = no batching).</span>
+      </div>
+
       <!-- Cookie hint (images mode only) -->
       <div id="cookie-hint" class="cookie-hint hidden">
         Tip: If fewer images than expected are found, drop a <code>cookies.txt</code> file

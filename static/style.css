@@ -562,6 +562,43 @@ body {
   font-size: 0.78rem;
 }
 
+/* ── Rate limiting options ── */
+.rate-limit-row {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+.rate-limit-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  cursor: default;
+  user-select: none;
+}
+.rate-limit-field input[type="number"] {
+  width: 60px;
+  padding: 2px 5px;
+  font-size: 0.82rem;
+  background: var(--input-bg, #1e1e1e);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  text-align: center;
+}
+.rate-limit-unit {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+.rate-limit-hint {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  flex-basis: 100%;
+}
+
 /* ── Cookie hint ── */
 .cookie-hint {
   margin-top: 10px;
