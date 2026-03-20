@@ -178,6 +178,17 @@
     </div>
   </div>
 
+  <!-- Lightbox -->
+  <div id="lightbox" class="lightbox-overlay hidden" onclick="closeLightbox()">
+    <button class="lightbox-close" onclick="closeLightbox()">✕</button>
+    <button class="lightbox-prev" onclick="event.stopPropagation();navigateLightbox(-1)">&#8249;</button>
+    <button class="lightbox-next" onclick="event.stopPropagation();navigateLightbox(1)">&#8250;</button>
+    <div class="lightbox-content" onclick="event.stopPropagation()">
+      <img id="lightbox-img" src="" alt="" />
+      <div id="lightbox-counter" class="lightbox-counter"></div>
+    </div>
+  </div>
+
   <!-- Toast -->
   <div id="toast" class="toast hidden"></div>
 

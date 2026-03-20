@@ -261,7 +261,8 @@ def scan_profile_images(url, max_images=10000, scan_id=None):
     # Try to extract a profile name from the URL as a fallback
     from urllib.parse import urlparse
     _path_parts = [p for p in urlparse(url).path.split("/") if p]
-    _skip_words = {"photos", "photos_albums", "albums", "videos", "reels", "posts", "tagged"}
+    _skip_words = {"photos", "photos_albums", "albums", "videos", "reels", "posts", "tagged",
+                   "media", "set", "pg", "story", "stories", "highlights", "saved", "explore"}
     _url_profile_name = next((p for p in _path_parts if p.lower() not in _skip_words), None)
     profile_name = _url_profile_name or "profile"
 

@@ -5,6 +5,7 @@ let ffmpegAvailable = true;
 let currentMode = 'video'; // 'video' | 'images'
 let scannedProfile = null;   // { profile_name, platform, image_count, images: [...] }
 let selectedImages = new Set(); // indices of selected images
+let lightboxIndex = 0;
 const activeDownloads = {}; // downloadId → { pollTimer }
 
 /* ── Init ── */
@@ -338,15 +339,58 @@ function renderImageGrid(images) {
     const cell = document.createElement('div');
     cell.className = 'image-cell selected';
     cell.dataset.index = i;
-    cell.onclick = () => toggleImageSelection(i);
-    cell.innerHTML = `
-      <img src="${esc(img.thumbnail)}" alt="${esc(img.filename)}" loading="lazy" />
-      <div class="image-check">✓</div>
-    `;
+    cell.onclick = () => openLightbox(i);
+
+    const imgEl = document.createElement('img');
+    imgEl.src = img.thumbnail;
+    imgEl.alt = img.filename;
+    imgEl.loading = 'lazy';
+
+    const check = document.createElement('div');
+    check.className = 'image-check';
+    check.textContent = '✓';
+    check.onclick = (e) => { e.stopPropagation(); toggleImageSelection(i); };
+
+    cell.appendChild(imgEl);
+    cell.appendChild(check);
     grid.appendChild(cell);
   });
 
   showEl('image-grid-section');
+}
+
+/* ── Lightbox ── */
+function openLightbox(idx) {
+  if (!scannedProfile || !scannedProfile.images.length) return;
+  lightboxIndex = idx;
+  updateLightbox();
+  document.getElementById('lightbox').classList.remove('hidden');
+  document.addEventListener('keydown', lightboxKeyHandler);
+}
+
+function closeLightbox() {
+  document.getElementById('lightbox').classList.add('hidden');
+  document.removeEventListener('keydown', lightboxKeyHandler);
+}
+
+function navigateLightbox(delta) {
+  const total = scannedProfile ? scannedProfile.images.length : 0;
+  if (!total) return;
+  lightboxIndex = (lightboxIndex + delta + total) % total;
+  updateLightbox();
+}
+
+function updateLightbox() {
+  const img = scannedProfile.images[lightboxIndex];
+  document.getElementById('lightbox-img').src = img.thumbnail;
+  document.getElementById('lightbox-counter').textContent =
+    `${lightboxIndex + 1} / ${scannedProfile.images.length}`;
+}
+
+function lightboxKeyHandler(e) {
+  if (e.key === 'Escape') closeLightbox();
+  else if (e.key === 'ArrowLeft') navigateLightbox(-1);
+  else if (e.key === 'ArrowRight') navigateLightbox(1);
 }
 
 /* ── Image Selection ── */
@@ -413,6 +457,14 @@ async function startImageDownload() {
 
     createDownloadCard(data.download_id, scannedProfile.profile_name, 'images', imagesToDownload.length);
     pollProgress(data.download_id);
+
+    // Clear scan UI so user can immediately scan another profile
+    scannedProfile = null;
+    selectedImages = new Set();
+    closeLightbox();
+    hideEl('profile-section');
+    hideEl('image-grid-section');
+    document.getElementById('url-input').value = '';
   } catch (e) {
     showToast('Network error starting download');
   }
