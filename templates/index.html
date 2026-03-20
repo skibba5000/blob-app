@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Blob — Video Downloader</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">⬇</span>
+        <span class="logo-text">Blob</span>
+      </div>
+      <div class="header-meta">
+        <span id="ffmpeg-indicator" class="badge badge-hidden"></span>
+        <span id="yt-dlp-version" class="version-tag"></span>
+      </div>
+    </div>
+  </header>
+
+  <!-- FFmpeg Warning Banner -->
+  <div id="ffmpeg-banner" class="banner banner-warning hidden">
+    <div class="banner-content">
+      <span class="banner-icon">⚠</span>
+      <span>FFmpeg not found — high-quality formats that need merging are disabled.</span>
+      <button class="banner-link" onclick="showFfmpegModal()">How to install</button>
+    </div>
+    <button class="banner-close" onclick="this.closest('.banner').classList.add('hidden')">✕</button>
+  </div>
+
+  <main class="main">
+
+    <!-- URL Input -->
+    <section class="card input-card">
+      <label class="input-label" for="url-input">Paste a video URL</label>
+      <div class="input-row">
+        <input
+          id="url-input"
+          type="url"
+          class="url-input"
+          placeholder="https://www.youtube.com/watch?v=..."
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button id="fetch-btn" class="btn btn-primary" onclick="onFetch()">
+          <span id="fetch-btn-text">Fetch Formats</span>
+          <span id="fetch-spinner" class="spinner hidden"></span>
+        </button>
+      </div>
+      <div id="fetch-error" class="error-msg hidden"></div>
+    </section>
+
+    <!-- Video Info Card -->
+    <section id="video-info" class="card video-info-card hidden">
+      <img id="video-thumb" class="video-thumb" src="" alt="Thumbnail" />
+      <div class="video-meta">
+        <h2 id="video-title" class="video-title"></h2>
+        <p id="video-uploader" class="video-uploader"></p>
+        <p id="video-duration" class="video-duration"></p>
+      </div>
+    </section>
+
+    <!-- Format Table -->
+    <section id="formats-section" class="card hidden">
+      <h3 class="section-title">Available Formats</h3>
+      <div class="table-wrapper">
+        <table class="formats-table">
+          <thead>
+            <tr>
+              <th>Quality</th>
+              <th>Format</th>
+              <th>Size</th>
+              <th>FPS</th>
+              <th>Type</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="formats-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Active Downloads -->
+    <div id="downloads-panel"></div>
+
+    <!-- Download History -->
+    <section id="history-section" class="card">
+      <div class="section-header">
+        <h3 class="section-title">Download History</h3>
+        <button class="btn btn-secondary btn-sm" onclick="openDownloadsFolder()">Open folder</button>
+      </div>
+      <div id="history-empty" class="history-empty">No downloads yet.</div>
+      <div class="table-wrapper" id="history-table-wrap" style="display:none">
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Resolution</th>
+              <th>Size</th>
+              <th>Date</th>
+            </tr>
+          </thead>
+          <tbody id="history-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- FFmpeg Install Modal -->
+  <div id="ffmpeg-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeFfmpegModal()">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Install FFmpeg</h3>
+        <button class="modal-close" onclick="closeFfmpegModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <p>FFmpeg is required to merge video and audio streams for high-quality downloads.</p>
+        <div class="install-option">
+          <strong>Option 1 — winget (recommended)</strong>
+          <code class="code-block">winget install ffmpeg</code>
+          <p class="hint">Run this in Command Prompt or PowerShell as Administrator, then restart Blob.</p>
+        </div>
+        <div class="install-option">
+          <strong>Option 2 — Manual</strong>
+          <ol>
+            <li>Go to <span class="code-inline">https://www.gyan.dev/ffmpeg/builds/</span></li>
+            <li>Download the <strong>ffmpeg-release-essentials.zip</strong></li>
+            <li>Extract it and copy the <code>bin</code> folder path</li>
+            <li>Add that path to your Windows <strong>PATH</strong> environment variable</li>
+            <li>Restart Blob</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
