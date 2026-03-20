@@ -652,6 +652,28 @@ body {
 .image-cell:hover .image-check { opacity: 0.4; }
 .image-cell.selected .image-check { opacity: 1; }
 
+/* ── Album sections ── */
+.album-section {
+  margin-bottom: 28px;
+}
+.album-section:last-child {
+  margin-bottom: 0;
+}
+.album-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.album-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
 /* ── Lightbox ── */
 .lightbox-overlay {
   position: fixed;

@@ -5,6 +5,7 @@ let ffmpegAvailable = true;
 let currentMode = 'video'; // 'video' | 'images'
 let scannedProfile = null;   // { profile_name, platform, image_count, images: [...] }
 let selectedImages = new Set(); // indices of selected images
+let albumGroupsList = [];    // [{ name: string|null, indices: number[] }]
 let lightboxIndex = 0;
 const activeDownloads = {}; // downloadId → { pollTimer }
 
@@ -265,6 +266,7 @@ async function onScanProfile() {
   hideEl('image-grid-section');
   scannedProfile = null;
   selectedImages = new Set();
+  albumGroupsList = [];
 
   // Start scan, get scan_id back immediately
   let scanId;
@@ -336,31 +338,91 @@ function renderProfileCard(data) {
 
 /* ── Image Grid ── */
 function renderImageGrid(images) {
-  const grid = document.getElementById('image-grid');
-  grid.innerHTML = '';
+  const container = document.getElementById('image-grid');
+  container.innerHTML = '';
+  albumGroupsList = [];
 
+  // Build groups
+  const groupMap = new Map();
   images.forEach((img, i) => {
-    const cell = document.createElement('div');
-    cell.className = 'image-cell selected';
-    cell.dataset.index = i;
-    cell.onclick = () => openLightbox(i);
-
-    const imgEl = document.createElement('img');
-    imgEl.src = img.thumbnail;
-    imgEl.alt = img.filename;
-    imgEl.loading = 'lazy';
-
-    const check = document.createElement('div');
-    check.className = 'image-check';
-    check.textContent = '✓';
-    check.onclick = (e) => { e.stopPropagation(); toggleImageSelection(i); };
-
-    cell.appendChild(imgEl);
-    cell.appendChild(check);
-    grid.appendChild(cell);
+    const key = img.album || '';
+    if (!groupMap.has(key)) groupMap.set(key, { name: img.album || null, indices: [] });
+    groupMap.get(key).indices.push(i);
   });
 
+  const hasAlbums = groupMap.size > 1 || (groupMap.size === 1 && !groupMap.has(''));
+
+  if (!hasAlbums) {
+    // Flat grid — no albums detected
+    container.className = 'image-grid';
+    const group = groupMap.get('') || { name: null, indices: [] };
+    albumGroupsList.push(group);
+    group.indices.forEach(i => container.appendChild(createImageCell(images[i], i)));
+  } else {
+    container.className = '';
+    // No-album photos first, then albums sorted alphabetically
+    const noAlbumGroup = groupMap.get('');
+    const albumKeys = [...groupMap.keys()].filter(k => k !== '').sort();
+    const orderedKeys = noAlbumGroup ? ['', ...albumKeys] : albumKeys;
+
+    orderedKeys.forEach(key => {
+      const group = groupMap.get(key);
+      const groupIdx = albumGroupsList.length;
+      albumGroupsList.push(group);
+
+      const section = document.createElement('div');
+      section.className = 'album-section';
+
+      const header = document.createElement('div');
+      header.className = 'album-header';
+
+      const nameEl = document.createElement('span');
+      nameEl.className = 'album-name';
+      nameEl.textContent = group.name
+        ? `${group.name} (${group.indices.length})`
+        : `Photos (${group.indices.length})`;
+
+      const btn = document.createElement('button');
+      btn.className = 'btn btn-secondary btn-sm album-toggle-btn';
+      btn.dataset.albumIdx = groupIdx;
+      btn.textContent = 'Deselect';
+      btn.onclick = () => toggleAlbum(groupIdx);
+
+      header.appendChild(nameEl);
+      header.appendChild(btn);
+
+      const grid = document.createElement('div');
+      grid.className = 'image-grid';
+      group.indices.forEach(i => grid.appendChild(createImageCell(images[i], i)));
+
+      section.appendChild(header);
+      section.appendChild(grid);
+      container.appendChild(section);
+    });
+  }
+
   showEl('image-grid-section');
+}
+
+function createImageCell(img, i) {
+  const cell = document.createElement('div');
+  cell.className = 'image-cell selected';
+  cell.dataset.index = i;
+  cell.onclick = () => openLightbox(i);
+
+  const imgEl = document.createElement('img');
+  imgEl.src = img.thumbnail;
+  imgEl.alt = img.filename;
+  imgEl.loading = 'lazy';
+
+  const check = document.createElement('div');
+  check.className = 'image-check';
+  check.textContent = '✓';
+  check.onclick = (e) => { e.stopPropagation(); toggleImageSelection(i); };
+
+  cell.appendChild(imgEl);
+  cell.appendChild(check);
+  return cell;
 }
 
 /* ── Lightbox ── */
@@ -417,11 +479,9 @@ function toggleAllImages() {
   if (allSelected) {
     selectedImages.clear();
     document.querySelectorAll('.image-cell').forEach(c => c.classList.remove('selected'));
-    document.getElementById('select-toggle-btn').textContent = 'Select All';
   } else {
     scannedProfile.images.forEach((_, i) => selectedImages.add(i));
     document.querySelectorAll('.image-cell').forEach(c => c.classList.add('selected'));
-    document.getElementById('select-toggle-btn').textContent = 'Deselect All';
   }
   updateSelectionUI();
 }
@@ -434,6 +494,37 @@ function updateSelectionUI() {
     document.getElementById('select-toggle-btn').textContent =
       selectedImages.size === scannedProfile.images.length ? 'Deselect All' : 'Select All';
   }
+  updateAllAlbumButtons();
+}
+
+/* ── Album selection ── */
+function toggleAlbum(groupIdx) {
+  const group = albumGroupsList[groupIdx];
+  if (!group) return;
+  const allSelected = group.indices.every(i => selectedImages.has(i));
+  if (allSelected) {
+    group.indices.forEach(i => {
+      selectedImages.delete(i);
+      const cell = document.querySelector(`.image-cell[data-index="${i}"]`);
+      if (cell) cell.classList.remove('selected');
+    });
+  } else {
+    group.indices.forEach(i => {
+      selectedImages.add(i);
+      const cell = document.querySelector(`.image-cell[data-index="${i}"]`);
+      if (cell) cell.classList.add('selected');
+    });
+  }
+  updateSelectionUI();
+}
+
+function updateAllAlbumButtons() {
+  albumGroupsList.forEach((group, idx) => {
+    const btn = document.querySelector(`.album-toggle-btn[data-album-idx="${idx}"]`);
+    if (!btn) return;
+    const allSelected = group.indices.every(i => selectedImages.has(i));
+    btn.textContent = allSelected ? 'Deselect' : 'Select';
+  });
 }
 
 /* ── Image Download ── */
