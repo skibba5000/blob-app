@@ -124,3 +124,13 @@ git add -A
 git commit -m "..."
 git push
 ```
+
+## After each change — self-update
+
+After pushing, always ask yourself: **is anything from this session worth noting in CLAUDE.md or memory?** If yes, update them before finishing. This covers:
+- New architectural decisions or quirks added to the codebase
+- New API routes or data structures
+- New user workflow preferences discovered
+- Anything that would help a future session avoid re-learning the same thing
+
+Do this automatically — the user does not need to ask.
