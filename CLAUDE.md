@@ -110,7 +110,8 @@ Images land in `./downloads/<profile_name>/`.
 
 ## GitHub
 
-Push after every meaningful change:
+**ALWAYS push to GitHub automatically after every code change** — include CLAUDE.md and all modified files. Do not wait to be asked.
+
 ```bash
 git add -A
 git commit -m "..."

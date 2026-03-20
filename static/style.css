@@ -156,6 +156,7 @@ body {
 .input-row {
   display: flex;
   gap: 10px;
+  align-items: center;
 }
 .url-input {
   flex: 1;
@@ -209,6 +210,15 @@ body {
   flex-shrink: 0;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Scan timer ── */
+.scan-timer {
+  margin-left: 10px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  align-self: center;
+}
 
 /* ── Error ── */
 .error-msg {

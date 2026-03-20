@@ -248,9 +248,15 @@ def scan_profile_images(url, max_images=300):
     print(f"[gallery-dl] Extractor: {type(ex).__name__} for URL: {url}")
 
     images = []
-    profile_name = "profile"
     platform = type(ex).__module__.split(".")[-1]
     visited = set()
+
+    # Try to extract a profile name from the URL as a fallback
+    from urllib.parse import urlparse
+    _path_parts = [p for p in urlparse(url).path.split("/") if p]
+    _skip_words = {"photos", "photos_albums", "albums", "videos", "reels", "posts", "tagged"}
+    _url_profile_name = next((p for p in _path_parts if p.lower() not in _skip_words), None)
+    profile_name = _url_profile_name or "profile"
 
     def process_extractor(ext):
         """Iterate an extractor, recursively following Queue messages."""

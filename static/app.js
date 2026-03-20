@@ -244,6 +244,26 @@ async function startDownload(formatId, resolution, needsMerge) {
   }
 }
 
+/* ── Scan timer helpers ── */
+let _scanTimerInterval = null;
+
+function startScanTimer() {
+  const el = document.getElementById('scan-timer');
+  el.classList.remove('hidden');
+  const start = Date.now();
+  el.textContent = '0s';
+  _scanTimerInterval = setInterval(() => {
+    const sec = Math.floor((Date.now() - start) / 1000);
+    el.textContent = sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${sec % 60}s`;
+  }, 1000);
+}
+
+function stopScanTimer() {
+  clearInterval(_scanTimerInterval);
+  _scanTimerInterval = null;
+  document.getElementById('scan-timer').classList.add('hidden');
+}
+
 /* ── Scan Profile (images mode) ── */
 async function onScanProfile() {
   const input = document.getElementById('url-input');
@@ -257,6 +277,7 @@ async function onScanProfile() {
 
   currentUrl = url;
   setFetchLoading(true);
+  startScanTimer();
   hideEl('fetch-error');
   hideEl('profile-section');
   hideEl('image-grid-section');
@@ -286,6 +307,7 @@ async function onScanProfile() {
     showError('fetch-error', 'Network error — is the server running?');
   } finally {
     setFetchLoading(false);
+    stopScanTimer();
   }
 }
 

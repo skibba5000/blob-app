@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install:*)",
+      "Bash(python -c \"import flask, yt_dlp; print\\(''flask OK''\\); print\\(''yt-dlp'', yt_dlp.version.__version__\\)\")",
+      "Bash(python -c \"from gallery_dl import extractor as gdl_extractor; from gallery_dl.extractor import Message as GdlMessage; from gallery_dl import config as gdl_config; print\\(''gallery-dl OK''\\)\")",
+      "Bash(python -c \"import gallery_dl; print\\(gallery_dl.__version__\\)\")",
+      "Bash(python -c \"from gallery_dl import extractor; print\\(dir\\(extractor\\)\\)\")",
+      "Bash(python -c \"from gallery_dl.extractor import message; print\\(dir\\(message\\)\\)\")",
+      "Bash(python -c \":*)",
+      "Bash(python -c \"import app; print\\(''app.py OK''\\); print\\(''GALLERY_DL_AVAILABLE ='', app.GALLERY_DL_AVAILABLE\\)\")",
+      "Bash(gh auth:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
+    ]
+  }
+}
