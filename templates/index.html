@@ -41,6 +41,7 @@
       <div class="mode-tabs">
         <button id="tab-video" class="mode-tab active" onclick="switchMode('video')">Video</button>
         <button id="tab-images" class="mode-tab" onclick="switchMode('images')">Images</button>
+        <button id="tab-channel" class="mode-tab" onclick="switchMode('channel')">Channel</button>
       </div>
 
       <label class="input-label" for="url-input" id="url-label">Paste a video URL</label>
@@ -147,6 +148,29 @@
     <!-- Image Grid -->
     <section id="image-grid-section" class="card hidden">
       <div id="image-grid"></div>
+    </section>
+
+    <!-- ── CHANNEL MODE ── -->
+
+    <!-- Channel Info Card -->
+    <section id="channel-section" class="card hidden">
+      <div class="profile-header">
+        <div class="profile-info">
+          <h2 id="channel-name" class="profile-name"></h2>
+          <p id="channel-meta" class="profile-meta"></p>
+        </div>
+        <div class="profile-actions">
+          <button id="channel-select-toggle-btn" class="btn btn-secondary btn-sm" onclick="toggleAllVideos()">Deselect All</button>
+          <button id="download-channel-btn" class="btn btn-primary" onclick="startChannelDownload()">
+            Download Selected (<span id="channel-selected-count">0</span>)
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Video Grid -->
+    <section id="video-grid-section" class="card hidden">
+      <div id="video-grid" class="video-grid"></div>
     </section>
 
     <!-- ── SHARED: Active Downloads ── -->

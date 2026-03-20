@@ -664,12 +664,14 @@ def api_scan_progress(scan_id):
     if entry["status"] == "done":
         return jsonify(entry)
 
-    # During scan: return lightweight progress without the images list
+    # During scan: return lightweight progress without the full results list
     return jsonify({
         "status": entry["status"],
+        "scan_type": entry.get("scan_type", "images"),
         "found": entry["found"],
-        "profile_name": entry["profile_name"],
-        "platform": entry["platform"],
+        "profile_name": entry.get("profile_name", ""),
+        "channel_name": entry.get("channel_name", ""),
+        "platform": entry.get("platform", ""),
         "scan_label": entry.get("scan_label", ""),
         "error": entry["error"],
     })
@@ -714,6 +716,209 @@ def api_download_images():
         daemon=True,
     )
     thread.start()
+
+    return jsonify({"download_id": download_id})
+
+
+def run_channel_download(download_id, channel_name, videos):
+    """Download a list of YouTube videos sequentially into the downloads folder."""
+    total = len(videos)
+    completed = 0
+    failed = 0
+    errors = []
+
+    for i, video in enumerate(videos):
+        url = video["url"]
+        title = video.get("title", "video")
+
+        with progress_lock:
+            downloads_progress[download_id].update({
+                "status": "downloading",
+                "current_title": title,
+                "current_percent": 0,
+                "percent": round(i / total * 100, 1),
+                "completed": completed,
+                "failed": failed,
+            })
+
+        def make_hook(dl_id, idx, tot):
+            def hook(d):
+                with progress_lock:
+                    if d["status"] == "downloading":
+                        tb = d.get("total_bytes") or d.get("total_bytes_estimate")
+                        db = d.get("downloaded_bytes", 0)
+                        cur_pct = (db / tb * 100) if tb else 0
+                        overall = (idx + cur_pct / 100) / tot * 100
+                        downloads_progress[dl_id].update({
+                            "current_percent": round(cur_pct, 1),
+                            "percent": round(overall, 1),
+                        })
+                    elif d["status"] == "finished":
+                        downloads_progress[dl_id]["current_percent"] = 100
+            return hook
+
+        ydl_opts = {
+            "format": "bestvideo+bestaudio/best",
+            "merge_output_format": "mp4",
+            "outtmpl": os.path.join(DOWNLOADS_DIR, "%(title)s.%(ext)s"),
+            "progress_hooks": [make_hook(download_id, i, total)],
+            "quiet": True,
+            "no_warnings": True,
+        }
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+            completed += 1
+        except Exception as e:
+            failed += 1
+            errors.append(f"{title}: {str(e)[:120]}")
+
+    final_status = "finished" if failed == 0 else ("partial" if completed > 0 else "error")
+    with progress_lock:
+        downloads_progress[download_id].update({
+            "status": final_status,
+            "percent": 100,
+            "completed": completed,
+            "failed": failed,
+            "current_title": "",
+            "current_percent": 0,
+            "errors": errors,
+            "error": f"All {failed} downloads failed" if completed == 0 and failed > 0 else "",
+        })
+        if completed > 0:
+            download_history.insert(0, {
+                "title": f"{channel_name} — {completed} video{'s' if completed != 1 else ''}",
+                "url": "",
+                "resolution": "best",
+                "filesize": "—",
+                "filename": "",
+                "completed_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            })
+
+
+@app.route("/api/scan-channel", methods=["POST"])
+def api_scan_channel():
+    data = request.get_json()
+    url = (data or {}).get("url", "").strip()
+    max_videos = min(int((data or {}).get("max_videos", 500) or 500), 2000)
+
+    if not url:
+        return jsonify({"error": "No URL provided"}), 400
+
+    scan_id = str(uuid.uuid4())
+    with scan_lock:
+        scan_progress[scan_id] = {
+            "scan_type": "channel",
+            "status": "scanning",
+            "found": 0,
+            "channel_name": "",
+            "scan_label": "Scanning channel…",
+            "videos": [],
+            "error": "",
+        }
+
+    def run_scan():
+        try:
+            ydl_opts = {
+                "quiet": True,
+                "no_warnings": True,
+                "extract_flat": "in_playlist",
+                "playlistend": max_videos,
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+
+            channel_name = (
+                info.get("channel")
+                or info.get("uploader")
+                or info.get("title")
+                or "Channel"
+            )
+            entries = info.get("entries") or []
+
+            videos = []
+            for entry in entries:
+                if not entry or not entry.get("id"):
+                    continue
+                if len(videos) >= max_videos:
+                    break
+                vid_id = entry["id"]
+                # Prefer entry thumbnail; fall back to standard YouTube thumbnail URL
+                thumb = entry.get("thumbnail") or f"https://i.ytimg.com/vi/{vid_id}/mqdefault.jpg"
+                video_url = (
+                    entry.get("url")
+                    or entry.get("webpage_url")
+                    or f"https://www.youtube.com/watch?v={vid_id}"
+                )
+                videos.append({
+                    "id": vid_id,
+                    "url": video_url,
+                    "title": entry.get("title") or "Unknown",
+                    "thumbnail": thumb,
+                    "duration": entry.get("duration"),
+                    "upload_date": entry.get("upload_date"),  # YYYYMMDD string
+                })
+                with scan_lock:
+                    scan_progress[scan_id]["found"] = len(videos)
+                    scan_progress[scan_id]["channel_name"] = channel_name
+
+            if not videos:
+                with scan_lock:
+                    scan_progress[scan_id].update({
+                        "status": "error",
+                        "error": "No videos found. Check the URL is a valid YouTube channel or playlist.",
+                    })
+            else:
+                with scan_lock:
+                    scan_progress[scan_id].update({
+                        "status": "done",
+                        "found": len(videos),
+                        "channel_name": channel_name,
+                        "video_count": len(videos),
+                        "videos": videos,
+                    })
+        except yt_dlp.utils.DownloadError as e:
+            msg = str(e).replace("ERROR: ", "")
+            with scan_lock:
+                scan_progress[scan_id].update({"status": "error", "error": msg})
+        except Exception as e:
+            with scan_lock:
+                scan_progress[scan_id].update({"status": "error", "error": f"Error: {e}"})
+
+    threading.Thread(target=run_scan, daemon=True).start()
+    return jsonify({"scan_id": scan_id})
+
+
+@app.route("/api/start-channel-downloads", methods=["POST"])
+def api_start_channel_downloads():
+    data = request.get_json()
+    channel_name = (data or {}).get("channel_name", "Channel").strip()
+    videos = (data or {}).get("videos", [])
+
+    if not videos:
+        return jsonify({"error": "No videos selected"}), 400
+
+    download_id = str(uuid.uuid4())
+    with progress_lock:
+        downloads_progress[download_id] = {
+            "type": "channel",
+            "status": "starting",
+            "title": f"{channel_name} — {len(videos)} video{'s' if len(videos) != 1 else ''}",
+            "percent": 0,
+            "total": len(videos),
+            "completed": 0,
+            "failed": 0,
+            "current_title": "",
+            "current_percent": 0,
+            "errors": [],
+            "error": "",
+        }
+
+    threading.Thread(
+        target=run_channel_download,
+        args=(download_id, channel_name, videos),
+        daemon=True,
+    ).start()
 
     return jsonify({"download_id": download_id})
 

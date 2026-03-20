@@ -2,12 +2,16 @@
 let currentUrl = '';
 let currentTitle = '';
 let ffmpegAvailable = true;
-let currentMode = 'video'; // 'video' | 'images'
+let currentMode = 'video'; // 'video' | 'images' | 'channel'
 let scannedProfile = null;   // { profile_name, platform, image_count, images: [...] }
 let selectedImages = new Set(); // indices of selected images
 let albumGroupsList = [];    // [{ name: string|null, indices: number[] }]
 let lightboxIndex = 0;
 const activeDownloads = {}; // downloadId → { pollTimer }
+
+// Channel mode state
+let scannedChannel = null;  // { channel_name, video_count, videos: [...] }
+let selectedVideos = new Set(); // indices of selected videos
 
 /* ── Init ── */
 document.addEventListener('DOMContentLoaded', () => {
@@ -25,6 +29,9 @@ document.addEventListener('DOMContentLoaded', () => {
       if (val.startsWith('http') && currentMode === 'video') onFetch();
     }, 50);
   });
+
+  // Also allow Enter to trigger in channel mode
+  // (already handled by onFetch via keydown listener above)
 });
 
 /* ── Mode switching ── */
@@ -32,30 +39,39 @@ function switchMode(mode) {
   currentMode = mode;
   document.getElementById('tab-video').classList.toggle('active', mode === 'video');
   document.getElementById('tab-images').classList.toggle('active', mode === 'images');
+  document.getElementById('tab-channel').classList.toggle('active', mode === 'channel');
 
   const label = document.getElementById('url-label');
   const btnText = document.getElementById('fetch-btn-text');
   const input = document.getElementById('url-input');
   const hint = document.getElementById('cookie-hint');
 
+  // Hide all mode-specific sections first
+  hideEl('video-info');
+  hideEl('formats-section');
+  hideEl('profile-section');
+  hideEl('image-grid-section');
+  hideEl('channel-section');
+  hideEl('video-grid-section');
+  document.getElementById('deep-scan-row').classList.add('hidden');
+  document.getElementById('rate-limit-row').classList.add('hidden');
+  hint.classList.add('hidden');
+
   if (mode === 'video') {
     label.textContent = 'Paste a video URL';
     btnText.textContent = 'Fetch Formats';
     input.placeholder = 'https://www.youtube.com/watch?v=...';
-    hint.classList.add('hidden');
-    document.getElementById('deep-scan-row').classList.add('hidden');
-    document.getElementById('rate-limit-row').classList.add('hidden');
-    hideEl('profile-section');
-    hideEl('image-grid-section');
-  } else {
+  } else if (mode === 'images') {
     label.textContent = 'Paste a profile URL';
     btnText.textContent = 'Scan Profile';
     input.placeholder = 'https://www.instagram.com/username/';
     hint.classList.remove('hidden');
     document.getElementById('deep-scan-row').classList.remove('hidden');
     document.getElementById('rate-limit-row').classList.remove('hidden');
-    hideEl('video-info');
-    hideEl('formats-section');
+  } else if (mode === 'channel') {
+    label.textContent = 'Paste a YouTube channel or playlist URL';
+    btnText.textContent = 'Scan Channel';
+    input.placeholder = 'https://www.youtube.com/@channelname/videos';
   }
 
   hideEl('fetch-error');
@@ -96,6 +112,8 @@ async function checkStatus() {
 function onFetch() {
   if (currentMode === 'images') {
     onScanProfile();
+  } else if (currentMode === 'channel') {
+    onScanChannel();
   } else {
     onFetchFormats();
   }
@@ -143,9 +161,9 @@ async function onFetchFormats() {
 
 function setFetchLoading(loading) {
   const btn = document.getElementById('fetch-btn');
-  document.getElementById('fetch-btn-text').textContent = loading
-    ? (currentMode === 'images' ? 'Scanning…' : 'Fetching…')
-    : (currentMode === 'images' ? 'Scan Profile' : 'Fetch Formats');
+  const labels = { video: ['Fetching…', 'Fetch Formats'], images: ['Scanning…', 'Scan Profile'], channel: ['Scanning…', 'Scan Channel'] };
+  const [loadingText, idleText] = labels[currentMode] || labels.video;
+  document.getElementById('fetch-btn-text').textContent = loading ? loadingText : idleText;
   document.getElementById('fetch-spinner').classList.toggle('hidden', !loading);
   btn.disabled = loading;
 }
@@ -576,6 +594,218 @@ async function startImageDownload() {
   }
 }
 
+/* ── Scan Channel ── */
+async function onScanChannel() {
+  const input = document.getElementById('url-input');
+  const url = input.value.trim();
+
+  if (!url) return;
+  if (!url.startsWith('http')) {
+    showError('fetch-error', 'Please enter a valid URL starting with http:// or https://');
+    return;
+  }
+
+  currentUrl = url;
+  setFetchLoading(true);
+  hideEl('fetch-error');
+  hideEl('channel-section');
+  hideEl('video-grid-section');
+  scannedChannel = null;
+  selectedVideos = new Set();
+
+  let scanId;
+  try {
+    const res = await fetch('/api/scan-channel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showError('fetch-error', data.error || 'Failed to start scan');
+      setFetchLoading(false);
+      return;
+    }
+    scanId = data.scan_id;
+  } catch (e) {
+    showError('fetch-error', 'Network error — is the server running?');
+    setFetchLoading(false);
+    return;
+  }
+
+  const timerEl = document.getElementById('scan-timer');
+  timerEl.classList.remove('hidden');
+  timerEl.textContent = '0s';
+  const scanStart = Date.now();
+
+  const pollTimer = setInterval(async () => {
+    try {
+      const res = await fetch('/api/scan-progress/' + scanId);
+      const data = await res.json();
+
+      const sec = Math.floor((Date.now() - scanStart) / 1000);
+      const timeStr = sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${sec % 60}s`;
+      timerEl.textContent = data.found > 0
+        ? `${timeStr} · ${data.found} video${data.found !== 1 ? 's' : ''} found`
+        : timeStr;
+
+      if (data.status === 'done') {
+        clearInterval(pollTimer);
+        timerEl.classList.add('hidden');
+        scannedChannel = data;
+        data.videos.forEach((_, i) => selectedVideos.add(i));
+        renderChannelCard(data);
+        renderVideoGrid(data.videos);
+        setFetchLoading(false);
+      } else if (data.status === 'error') {
+        clearInterval(pollTimer);
+        timerEl.classList.add('hidden');
+        showError('fetch-error', data.error || 'Scan failed');
+        setFetchLoading(false);
+      }
+    } catch (e) { /* network hiccup, keep polling */ }
+  }, 500);
+}
+
+/* ── Channel Card ── */
+function renderChannelCard(data) {
+  document.getElementById('channel-name').textContent = data.channel_name || 'Channel';
+  document.getElementById('channel-meta').textContent =
+    `${data.video_count} video${data.video_count !== 1 ? 's' : ''} found`;
+  updateChannelSelectionUI();
+  showEl('channel-section');
+}
+
+/* ── Video Grid ── */
+function renderVideoGrid(videos) {
+  const grid = document.getElementById('video-grid');
+  grid.innerHTML = '';
+  videos.forEach((v, i) => grid.appendChild(createVideoCard(v, i)));
+  showEl('video-grid-section');
+}
+
+function createVideoCard(video, i) {
+  const card = document.createElement('div');
+  card.className = 'video-card selected';
+  card.dataset.index = i;
+
+  const thumbWrap = document.createElement('div');
+  thumbWrap.className = 'video-thumb-wrap';
+
+  const img = document.createElement('img');
+  img.src = video.thumbnail;
+  img.alt = video.title;
+  img.loading = 'lazy';
+  thumbWrap.appendChild(img);
+
+  if (video.duration) {
+    const dur = document.createElement('span');
+    dur.className = 'video-duration-badge';
+    dur.textContent = formatDuration(video.duration);
+    thumbWrap.appendChild(dur);
+  }
+
+  const check = document.createElement('div');
+  check.className = 'video-check';
+  check.textContent = '✓';
+  check.onclick = (e) => { e.stopPropagation(); toggleVideoSelection(i); };
+  thumbWrap.appendChild(check);
+
+  const info = document.createElement('div');
+  info.className = 'video-card-info';
+
+  const title = document.createElement('div');
+  title.className = 'video-card-title';
+  title.textContent = video.title;
+  info.appendChild(title);
+
+  if (video.upload_date && video.upload_date.length === 8) {
+    const d = video.upload_date;
+    const date = document.createElement('div');
+    date.className = 'video-card-date';
+    date.textContent = `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
+    info.appendChild(date);
+  }
+
+  card.appendChild(thumbWrap);
+  card.appendChild(info);
+  card.onclick = () => toggleVideoSelection(i);
+  return card;
+}
+
+/* ── Video Selection ── */
+function toggleVideoSelection(idx) {
+  const card = document.querySelector(`.video-card[data-index="${idx}"]`);
+  if (selectedVideos.has(idx)) {
+    selectedVideos.delete(idx);
+    card && card.classList.remove('selected');
+  } else {
+    selectedVideos.add(idx);
+    card && card.classList.add('selected');
+  }
+  updateChannelSelectionUI();
+}
+
+function toggleAllVideos() {
+  if (!scannedChannel) return;
+  const allSelected = selectedVideos.size === scannedChannel.videos.length;
+  if (allSelected) {
+    selectedVideos.clear();
+    document.querySelectorAll('.video-card').forEach(c => c.classList.remove('selected'));
+  } else {
+    scannedChannel.videos.forEach((_, i) => selectedVideos.add(i));
+    document.querySelectorAll('.video-card').forEach(c => c.classList.add('selected'));
+  }
+  updateChannelSelectionUI();
+}
+
+function updateChannelSelectionUI() {
+  const count = selectedVideos.size;
+  document.getElementById('channel-selected-count').textContent = count;
+  document.getElementById('download-channel-btn').disabled = count === 0;
+  if (scannedChannel) {
+    document.getElementById('channel-select-toggle-btn').textContent =
+      selectedVideos.size === scannedChannel.videos.length ? 'Deselect All' : 'Select All';
+  }
+}
+
+/* ── Channel Download ── */
+async function startChannelDownload() {
+  if (!scannedChannel || selectedVideos.size === 0) return;
+
+  const videos = Array.from(selectedVideos).sort((a, b) => a - b).map(i => scannedChannel.videos[i]);
+
+  try {
+    const res = await fetch('/api/start-channel-downloads', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        channel_name: scannedChannel.channel_name,
+        videos: videos.map(v => ({ url: v.url, title: v.title })),
+      }),
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      showToast('Error: ' + (data.error || 'Download failed'));
+      return;
+    }
+
+    const cardTitle = `${scannedChannel.channel_name} — ${videos.length} video${videos.length !== 1 ? 's' : ''}`;
+    createDownloadCard(data.download_id, cardTitle, 'channel', videos.length);
+    pollProgress(data.download_id);
+
+    // Clear so user can scan another channel immediately
+    scannedChannel = null;
+    selectedVideos = new Set();
+    hideEl('channel-section');
+    hideEl('video-grid-section');
+    document.getElementById('url-input').value = '';
+  } catch (e) {
+    showToast('Network error starting download');
+  }
+}
+
 /* ── Per-download card ── */
 function createDownloadCard(downloadId, title, type, total) {
   const panel = document.getElementById('downloads-panel');
@@ -599,6 +829,26 @@ function createDownloadCard(downloadId, title, type, total) {
         <span id="sts-${downloadId}" class="progress-status">Starting…</span>
       </div>
       <div id="cur-file-${downloadId}" class="current-file"></div>
+    `;
+  } else if (type === 'channel') {
+    card.innerHTML = `
+      <div class="download-card-header">
+        <span class="download-card-title" title="${esc(title)}">${truncate(title, 60)}</span>
+        <span class="download-card-type-badge">Videos</span>
+        <button class="download-card-dismiss hidden" onclick="dismissCard('${downloadId}')">✕</button>
+      </div>
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="bar-${downloadId}" style="width:0%"></div>
+      </div>
+      <div class="progress-meta">
+        <span id="pct-${downloadId}">0%</span>
+        <span id="vid-count-${downloadId}" class="img-count">0 / ${total || '?'}</span>
+        <span id="sts-${downloadId}" class="progress-status">Starting…</span>
+      </div>
+      <div id="cur-video-${downloadId}" class="current-file"></div>
+      <div class="sub-progress-wrap" id="sub-wrap-${downloadId}">
+        <div class="sub-progress-bar" id="sub-bar-${downloadId}" style="width:0%"></div>
+      </div>
     `;
   } else {
     card.innerHTML = `
@@ -678,6 +928,21 @@ function updateCardUI(downloadId, data) {
       else if (data.status === 'partial') sts.textContent = 'Done (with errors)';
     }
     if (curFile) curFile.textContent = data.current_file || '';
+  } else if (data.type === 'channel') {
+    const vidCount = document.getElementById('vid-count-' + downloadId);
+    const sts = document.getElementById('sts-' + downloadId);
+    const curVideo = document.getElementById('cur-video-' + downloadId);
+    const subBar = document.getElementById('sub-bar-' + downloadId);
+
+    if (vidCount) vidCount.textContent = `${data.completed} / ${data.total}${data.failed > 0 ? ` (${data.failed} failed)` : ''}`;
+    if (sts) {
+      if (data.status === 'starting') sts.textContent = 'Starting…';
+      else if (data.status === 'downloading') sts.textContent = 'Downloading…';
+      else if (data.status === 'finished') sts.textContent = 'Done!';
+      else if (data.status === 'partial') sts.textContent = 'Done (with errors)';
+    }
+    if (curVideo) curVideo.textContent = data.current_title || '';
+    if (subBar) subBar.style.width = (data.current_percent || 0) + '%';
   } else {
     const spd = document.getElementById('spd-' + downloadId);
     const eta = document.getElementById('eta-' + downloadId);
@@ -712,6 +977,15 @@ function onDownloadFinished(downloadId, data) {
       : `Done — ${data.completed} image${data.completed !== 1 ? 's' : ''} saved`;
     const curFile = document.getElementById('cur-file-' + downloadId);
     if (curFile) curFile.textContent = data.folder ? `Saved to: downloads/${data.folder}/` : '';
+  } else if (data.type === 'channel') {
+    const sts = document.getElementById('sts-' + downloadId);
+    if (sts) sts.textContent = data.status === 'partial'
+      ? `Done — ${data.completed} saved, ${data.failed} failed`
+      : `Done — ${data.completed} video${data.completed !== 1 ? 's' : ''} saved`;
+    const curVideo = document.getElementById('cur-video-' + downloadId);
+    if (curVideo) curVideo.textContent = '';
+    const subWrap = document.getElementById('sub-wrap-' + downloadId);
+    if (subWrap) subWrap.style.display = 'none';
   } else {
     const titleEl = document.querySelector('#card-' + downloadId + ' .download-card-title');
     if (titleEl && data.filename) titleEl.textContent = data.filename;
@@ -722,6 +996,8 @@ function onDownloadFinished(downloadId, data) {
 
   if (data.type === 'images') {
     showToast(`Images saved: ${data.completed} downloaded${data.failed > 0 ? `, ${data.failed} failed` : ''}`);
+  } else if (data.type === 'channel') {
+    showToast(`Videos saved: ${data.completed}${data.failed > 0 ? `, ${data.failed} failed` : ''}`);
   } else {
     showToast('Download complete: ' + (data.filename || data.title || ''));
   }
