@@ -223,9 +223,20 @@ def scan_profile_images(url, max_images=300):
     gdl_config.clear()
 
     # Auto-load cookies.txt from app directory if present (Netscape format)
-    cookies_file = os.path.join(os.path.dirname(__file__), "cookies.txt")
-    if os.path.exists(cookies_file):
+    # Check both names — Windows often hides .txt extension, so users save "cookies.txt.txt"
+    app_dir = os.path.dirname(__file__)
+    cookies_file = None
+    for name in ("cookies.txt", "cookies.txt.txt"):
+        path = os.path.join(app_dir, name)
+        if os.path.exists(path):
+            cookies_file = path
+            break
+
+    if cookies_file:
+        print(f"[gallery-dl] Loading cookies from: {cookies_file}")
         gdl_config.set(("extractor",), "cookies", cookies_file)
+    else:
+        print(f"[gallery-dl] No cookies file found in: {app_dir}")
 
     ex = gdl_extractor.find(url)
     if ex is None:
@@ -234,38 +245,58 @@ def scan_profile_images(url, max_images=300):
             "Supported sites include Instagram, Facebook, Twitter/X, and 100+ others."
         )
 
+    print(f"[gallery-dl] Extractor: {type(ex).__name__} for URL: {url}")
+
     images = []
     profile_name = "profile"
     platform = type(ex).__module__.split(".")[-1]
+    visited = set()
 
-    try:
-        for item in ex:
+    def process_extractor(ext):
+        """Iterate an extractor, recursively following Queue messages."""
+        nonlocal profile_name
+        for item in ext:
             msg_type = item[0]
+
             if msg_type == GdlMessage.Directory:
-                kwdict = item[1]
-                profile_name = (
-                    kwdict.get("username")
-                    or kwdict.get("user")
-                    or kwdict.get("uploader")
-                    or kwdict.get("owner")
-                    or kwdict.get("name")
-                    or "profile"
-                )
+                kwdict = item[1] if len(item) > 1 else {}
+                if isinstance(kwdict, dict):
+                    profile_name = (
+                        kwdict.get("username")
+                        or kwdict.get("user")
+                        or kwdict.get("uploader")
+                        or kwdict.get("owner")
+                        or kwdict.get("name")
+                        or profile_name
+                    )
+
             elif msg_type == GdlMessage.Url:
                 img_url = item[1]
-                kwdict = item[2]
-                ext = kwdict.get("extension", "jpg")
+                kwdict = item[2] if len(item) > 2 and isinstance(item[2], dict) else {}
+                ext_name = kwdict.get("extension", "jpg")
                 fname = kwdict.get("filename") or str(len(images) + 1)
                 images.append({
                     "url": img_url,
-                    "filename": f"{fname}.{ext}",
+                    "filename": f"{fname}.{ext_name}",
                     "thumbnail": img_url,
                 })
                 if len(images) >= max_images:
-                    break
-    except Exception:
-        pass  # Return whatever we found so far
+                    return
 
+            elif msg_type == GdlMessage.Queue:
+                queue_url = item[1]
+                if queue_url not in visited:
+                    visited.add(queue_url)
+                    print(f"[gallery-dl] Following queue: {queue_url[:100]}")
+                    child_ex = gdl_extractor.find(queue_url)
+                    if child_ex:
+                        process_extractor(child_ex)
+                        if len(images) >= max_images:
+                            return
+
+    process_extractor(ex)
+
+    print(f"[gallery-dl] Done. {len(images)} images found, {len(visited)} albums followed.")
     return profile_name, platform, images
 
 
@@ -457,7 +488,7 @@ def api_scrape_profile():
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"gallery-dl error: {e}"}), 500
 
     if not images:
         return jsonify({
@@ -531,5 +562,4 @@ if __name__ == "__main__":
     print(f"  yt-dlp: {yt_dlp.version.__version__}")
     print(f"  Downloads: {DOWNLOADS_DIR}")
     print()
-    webbrowser.open("http://localhost:5000")
     app.run(host="localhost", port=5000, debug=False)
