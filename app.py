@@ -28,6 +28,8 @@ app = Flask(__name__)
 downloads_progress = {}
 download_history = []
 progress_lock = threading.Lock()
+scan_progress = {}
+scan_lock = threading.Lock()
 
 # --- Startup checks ---
 DOWNLOADS_DIR = os.path.join(os.path.dirname(__file__), "downloads")
@@ -218,7 +220,7 @@ def run_download(download_id, url, format_id, title, resolution):
 
 # --- Image scraping ---
 
-def scan_profile_images(url, max_images=300):
+def scan_profile_images(url, max_images=300, scan_id=None):
     """Extract image URLs from a profile URL using gallery-dl."""
     gdl_config.clear()
 
@@ -291,6 +293,10 @@ def scan_profile_images(url, max_images=300):
                     "filename": f"{fname}.{ext_name}",
                     "thumbnail": img_url,
                 })
+                if scan_id is not None:
+                    with scan_lock:
+                        scan_progress[scan_id]["found"] = len(images)
+                        scan_progress[scan_id]["profile_name"] = profile_name
                 if len(images) >= max_images:
                     return
 
@@ -494,26 +500,67 @@ def api_scrape_profile():
     if not url:
         return jsonify({"error": "No URL provided"}), 400
 
-    try:
-        profile_name, platform, images = scan_profile_images(url)
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-    except Exception as e:
-        return jsonify({"error": f"gallery-dl error: {e}"}), 500
+    scan_id = str(uuid.uuid4())
+    with scan_lock:
+        scan_progress[scan_id] = {
+            "status": "scanning",
+            "found": 0,
+            "profile_name": "",
+            "platform": "",
+            "images": [],
+            "error": "",
+        }
 
-    if not images:
-        return jsonify({
-            "error": (
-                "No images found. The profile may be private, or Instagram/Facebook "
-                "may require login. Try adding a cookies.txt file to the app folder."
-            )
-        }), 400
+    def run_scan():
+        try:
+            profile_name, platform, images = scan_profile_images(url, scan_id=scan_id)
+            if not images:
+                with scan_lock:
+                    scan_progress[scan_id].update({
+                        "status": "error",
+                        "error": (
+                            "No images found. The profile may be private, or Instagram/Facebook "
+                            "may require login. Try adding a cookies.txt file to the app folder."
+                        ),
+                    })
+            else:
+                with scan_lock:
+                    scan_progress[scan_id].update({
+                        "status": "done",
+                        "found": len(images),
+                        "profile_name": profile_name,
+                        "platform": platform,
+                        "image_count": len(images),
+                        "images": images,
+                    })
+        except ValueError as e:
+            with scan_lock:
+                scan_progress[scan_id].update({"status": "error", "error": str(e)})
+        except Exception as e:
+            with scan_lock:
+                scan_progress[scan_id].update({"status": "error", "error": f"gallery-dl error: {e}"})
 
+    threading.Thread(target=run_scan, daemon=True).start()
+    return jsonify({"scan_id": scan_id})
+
+
+@app.route("/api/scan-progress/<scan_id>")
+def api_scan_progress(scan_id):
+    with scan_lock:
+        entry = scan_progress.get(scan_id)
+    if entry is None:
+        return jsonify({"error": "Unknown scan ID"}), 404
+
+    if entry["status"] == "done":
+        return jsonify(entry)
+
+    # During scan: return lightweight progress without the images list
     return jsonify({
-        "profile_name": profile_name,
-        "platform": platform,
-        "image_count": len(images),
-        "images": images,
+        "status": entry["status"],
+        "found": entry["found"],
+        "profile_name": entry["profile_name"],
+        "platform": entry["platform"],
+        "error": entry["error"],
     })
 
 

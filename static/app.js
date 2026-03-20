@@ -244,26 +244,6 @@ async function startDownload(formatId, resolution, needsMerge) {
   }
 }
 
-/* ── Scan timer helpers ── */
-let _scanTimerInterval = null;
-
-function startScanTimer() {
-  const el = document.getElementById('scan-timer');
-  el.classList.remove('hidden');
-  const start = Date.now();
-  el.textContent = '0s';
-  _scanTimerInterval = setInterval(() => {
-    const sec = Math.floor((Date.now() - start) / 1000);
-    el.textContent = sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${sec % 60}s`;
-  }, 1000);
-}
-
-function stopScanTimer() {
-  clearInterval(_scanTimerInterval);
-  _scanTimerInterval = null;
-  document.getElementById('scan-timer').classList.add('hidden');
-}
-
 /* ── Scan Profile (images mode) ── */
 async function onScanProfile() {
   const input = document.getElementById('url-input');
@@ -277,13 +257,14 @@ async function onScanProfile() {
 
   currentUrl = url;
   setFetchLoading(true);
-  startScanTimer();
   hideEl('fetch-error');
   hideEl('profile-section');
   hideEl('image-grid-section');
   scannedProfile = null;
   selectedImages = new Set();
 
+  // Start scan, get scan_id back immediately
+  let scanId;
   try {
     const res = await fetch('/api/scrape-profile', {
       method: 'POST',
@@ -291,24 +272,52 @@ async function onScanProfile() {
       body: JSON.stringify({ url }),
     });
     const data = await res.json();
-
     if (!res.ok) {
-      showError('fetch-error', data.error || 'Failed to scan profile');
+      showError('fetch-error', data.error || 'Failed to start scan');
+      setFetchLoading(false);
       return;
     }
-
-    scannedProfile = data;
-    // Select all images by default
-    data.images.forEach((_, i) => selectedImages.add(i));
-
-    renderProfileCard(data);
-    renderImageGrid(data.images);
+    scanId = data.scan_id;
   } catch (e) {
     showError('fetch-error', 'Network error — is the server running?');
-  } finally {
     setFetchLoading(false);
-    stopScanTimer();
+    return;
   }
+
+  // Show timer and poll for progress
+  const timerEl = document.getElementById('scan-timer');
+  timerEl.classList.remove('hidden');
+  timerEl.textContent = '0s';
+  const scanStart = Date.now();
+
+  const pollTimer = setInterval(async () => {
+    try {
+      const res = await fetch('/api/scan-progress/' + scanId);
+      const data = await res.json();
+
+      // Update timer + live count
+      const sec = Math.floor((Date.now() - scanStart) / 1000);
+      const timeStr = sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${sec % 60}s`;
+      timerEl.textContent = data.found > 0
+        ? `${timeStr} · ${data.found} image${data.found !== 1 ? 's' : ''} found`
+        : timeStr;
+
+      if (data.status === 'done') {
+        clearInterval(pollTimer);
+        timerEl.classList.add('hidden');
+        scannedProfile = data;
+        data.images.forEach((_, i) => selectedImages.add(i));
+        renderProfileCard(data);
+        renderImageGrid(data.images);
+        setFetchLoading(false);
+      } else if (data.status === 'error') {
+        clearInterval(pollTimer);
+        timerEl.classList.add('hidden');
+        showError('fetch-error', data.error || 'Scan failed');
+        setFetchLoading(false);
+      }
+    } catch (e) { /* network hiccup, keep polling */ }
+  }, 500);
 }
 
 /* ── Profile Card ── */
