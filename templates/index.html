@@ -19,6 +19,7 @@
         <span id="gallery-dl-indicator" class="badge badge-hidden"></span>
         <span id="ffmpeg-indicator" class="badge badge-hidden"></span>
         <span id="yt-dlp-version" class="version-tag"></span>
+        <button class="btn-settings" onclick="showSettingsModal()" title="Settings">⚙</button>
       </div>
     </div>
   </header>
@@ -236,6 +237,27 @@
     <div class="lightbox-content" onclick="event.stopPropagation()">
       <img id="lightbox-img" src="" alt="" />
       <div id="lightbox-counter" class="lightbox-counter"></div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="settings-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeSettingsModal()">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Settings</h3>
+        <button class="modal-close" onclick="closeSettingsModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="settings-field">
+          <label class="settings-label">Download folder</label>
+          <p class="settings-hint">Where downloaded files are saved. Leave blank to use the default <code>downloads/</code> folder next to app.py.</p>
+          <input type="text" id="settings-downloads-dir" class="settings-input" placeholder="C:\Users\You\Downloads" />
+          <div class="settings-actions">
+            <button id="settings-save-btn" class="btn btn-primary" onclick="saveSettings()">Save</button>
+            <button class="btn btn-secondary" onclick="openDownloadsFolder()">Open current folder</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 

@@ -8,6 +8,7 @@ let selectedImages = new Set(); // indices of selected images
 let albumGroupsList = [];    // [{ name: string|null, indices: number[] }]
 let lightboxIndex = 0;
 const activeDownloads = {}; // downloadId → { pollTimer }
+const tabUrls = { video: '', images: '', channel: '' };
 
 // Channel mode state
 let scannedChannel = null;  // { channel_name, video_count, videos: [...] }
@@ -17,6 +18,7 @@ let selectedVideos = new Set(); // indices of selected videos
 document.addEventListener('DOMContentLoaded', () => {
   checkStatus();
   loadHistory();
+  loadSettings();
 
   const input = document.getElementById('url-input');
   input.addEventListener('keydown', (e) => {
@@ -36,6 +38,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* ── Mode switching ── */
 function switchMode(mode) {
+  // Save current URL for this tab before switching
+  tabUrls[currentMode] = document.getElementById('url-input').value;
   currentMode = mode;
   document.getElementById('tab-video').classList.toggle('active', mode === 'video');
   document.getElementById('tab-images').classList.toggle('active', mode === 'images');
@@ -74,6 +78,8 @@ function switchMode(mode) {
     input.placeholder = 'https://www.youtube.com/@channelname/videos';
   }
 
+  // Restore URL for the new tab
+  document.getElementById('url-input').value = tabUrls[mode] || '';
   hideEl('fetch-error');
 }
 
@@ -190,10 +196,7 @@ function renderFormats(formats) {
   const tbody = document.getElementById('formats-body');
   tbody.innerHTML = '';
 
-  const bestVA = formats.find(f => f.type === 'video+audio');
-
   formats.forEach(fmt => {
-    const isBest = bestVA && fmt.format_id === bestVA.format_id;
     const disableBtn = fmt.needs_merge && !ffmpegAvailable;
 
     const row = document.createElement('tr');
@@ -201,7 +204,6 @@ function renderFormats(formats) {
       <td>
         <div class="res-cell">
           <span class="res-badge">${friendlyResolution(fmt)}</span>
-          ${isBest ? '<span class="badge-best">Best</span>' : ''}
         </div>
       </td>
       <td>${fmt.ext.toUpperCase()}</td>
@@ -209,12 +211,15 @@ function renderFormats(formats) {
       <td>${fmt.fps ? fmt.fps + ' fps' : '—'}</td>
       <td>${typeChip(fmt.type, fmt.needs_merge)}</td>
       <td>
-        <button
-          class="btn btn-download"
-          ${disableBtn ? 'disabled title="Requires FFmpeg"' : ''}
-          onclick="startDownload('${fmt.format_id}', '${esc(fmt.resolution)}', ${fmt.needs_merge})"
-        >Download</button>
-        ${disableBtn ? '<div class="ffmpeg-note">Needs FFmpeg to add audio</div>' : ''}
+        <div class="action-cell">
+          <button
+            class="btn btn-download"
+            ${disableBtn ? 'disabled title="Requires FFmpeg"' : ''}
+            onclick="startDownload('${fmt.format_id}', '${esc(fmt.resolution)}', ${fmt.needs_merge})"
+          >Download</button>
+          ${fmt.needs_merge ? `<button class="btn btn-video-only" onclick="startDownload('${fmt.format_id}', '${esc(fmt.resolution)}', false, true)">Video only</button>` : ''}
+          ${disableBtn ? '<div class="ffmpeg-note">Needs FFmpeg to add audio</div>' : ''}
+        </div>
       </td>
     `;
     tbody.appendChild(row);
@@ -246,7 +251,7 @@ function typeChip(type, needsMerge) {
 }
 
 /* ── Video Download ── */
-async function startDownload(formatId, resolution, needsMerge) {
+async function startDownload(formatId, resolution, needsMerge, videoOnly = false) {
   try {
     const res = await fetch('/api/download', {
       method: 'POST',
@@ -257,6 +262,7 @@ async function startDownload(formatId, resolution, needsMerge) {
         title: currentTitle,
         resolution: resolution,
         needs_merge: needsMerge,
+        video_only: videoOnly,
       }),
     });
     const data = await res.json();
@@ -727,6 +733,28 @@ function createVideoCard(video, i) {
     info.appendChild(date);
   }
 
+  const resSelect = document.createElement('select');
+  resSelect.className = 'video-res-select';
+  resSelect.dataset.index = i;
+  resSelect.title = 'Quality for this video';
+  resSelect.onclick = (e) => e.stopPropagation();
+  [
+    { value: 'best', label: 'Best quality' },
+    { value: '2160', label: '4K (2160p)' },
+    { value: '1440', label: '1440p' },
+    { value: '1080', label: '1080p' },
+    { value: '720', label: '720p' },
+    { value: '480', label: '480p' },
+    { value: '360', label: '360p' },
+    { value: 'audio', label: 'Audio only' },
+  ].forEach(opt => {
+    const o = document.createElement('option');
+    o.value = opt.value;
+    o.textContent = opt.label;
+    resSelect.appendChild(o);
+  });
+  info.appendChild(resSelect);
+
   card.appendChild(thumbWrap);
   card.appendChild(info);
   card.onclick = () => toggleVideoSelection(i);
@@ -773,7 +801,18 @@ function updateChannelSelectionUI() {
 async function startChannelDownload() {
   if (!scannedChannel || selectedVideos.size === 0) return;
 
-  const videos = Array.from(selectedVideos).sort((a, b) => a - b).map(i => scannedChannel.videos[i]);
+  const videos = Array.from(selectedVideos).sort((a, b) => a - b).map(i => {
+    const v = scannedChannel.videos[i];
+    const resSelect = document.querySelector(`.video-res-select[data-index="${i}"]`);
+    const res = resSelect ? resSelect.value : 'best';
+    let formatSpec = 'bestvideo+bestaudio/best';
+    if (res !== 'best' && res !== 'audio') {
+      formatSpec = `bestvideo[height<=${res}]+bestaudio/best[height<=${res}]`;
+    } else if (res === 'audio') {
+      formatSpec = 'bestaudio/best';
+    }
+    return { url: v.url, title: v.title, format_spec: formatSpec };
+  });
 
   try {
     const res = await fetch('/api/start-channel-downloads', {
@@ -781,7 +820,7 @@ async function startChannelDownload() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         channel_name: scannedChannel.channel_name,
-        videos: videos.map(v => ({ url: v.url, title: v.title })),
+        videos,
       }),
     });
     const data = await res.json();
@@ -848,6 +887,20 @@ function createDownloadCard(downloadId, title, type, total) {
       <div id="cur-video-${downloadId}" class="current-file"></div>
       <div class="sub-progress-wrap" id="sub-wrap-${downloadId}">
         <div class="sub-progress-bar" id="sub-bar-${downloadId}" style="width:0%"></div>
+      </div>
+    `;
+  } else if (type === 'convert') {
+    card.innerHTML = `
+      <div class="download-card-header">
+        <span class="download-card-title" title="${esc(title)}">${truncate(title, 60)}</span>
+        <span class="download-card-type-badge">MP3</span>
+        <button class="download-card-dismiss hidden" onclick="dismissCard('${downloadId}')">✕</button>
+      </div>
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="bar-${downloadId}" style="width:50%;animation:pulse 1.5s ease-in-out infinite"></div>
+      </div>
+      <div class="progress-meta">
+        <span id="sts-${downloadId}" class="progress-status">Converting to MP3…</span>
       </div>
     `;
   } else {
@@ -943,6 +996,12 @@ function updateCardUI(downloadId, data) {
     }
     if (curVideo) curVideo.textContent = data.current_title || '';
     if (subBar) subBar.style.width = (data.current_percent || 0) + '%';
+  } else if (data.type === 'convert') {
+    const sts = document.getElementById('sts-' + downloadId);
+    if (sts) {
+      if (data.status === 'converting') sts.textContent = 'Converting to MP3…';
+      else if (data.status === 'finished') sts.textContent = 'Done — ' + (data.filename || '');
+    }
   } else {
     const spd = document.getElementById('spd-' + downloadId);
     const eta = document.getElementById('eta-' + downloadId);
@@ -989,6 +1048,16 @@ function onDownloadFinished(downloadId, data) {
   } else {
     const titleEl = document.querySelector('#card-' + downloadId + ' .download-card-title');
     if (titleEl && data.filename) titleEl.textContent = data.filename;
+    if (ffmpegAvailable && data.filename) {
+      const card = document.getElementById('card-' + downloadId);
+      if (card) {
+        const convertBtn = document.createElement('button');
+        convertBtn.className = 'btn btn-secondary btn-sm convert-mp3-btn';
+        convertBtn.textContent = 'Convert to MP3';
+        convertBtn.onclick = () => convertToMp3(data.filename, convertBtn);
+        card.querySelector('.download-card-header').appendChild(convertBtn);
+      }
+    }
   }
 
   const dismissBtn = document.querySelector('#card-' + downloadId + ' .download-card-dismiss');
@@ -1016,6 +1085,83 @@ function onDownloadError(downloadId, data) {
   if (dismissBtn) dismissBtn.classList.remove('hidden');
 
   showToast('Download failed: ' + (data.error || 'Unknown error'));
+}
+
+async function convertToMp3(filename, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Converting…';
+  try {
+    const res = await fetch('/api/convert-to-mp3', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast('Error: ' + (data.error || 'Conversion failed'));
+      btn.disabled = false;
+      btn.textContent = 'Convert to MP3';
+      return;
+    }
+    btn.remove();
+    createDownloadCard(data.download_id, filename, 'convert');
+    pollProgress(data.download_id);
+  } catch (e) {
+    showToast('Network error during conversion');
+    btn.disabled = false;
+    btn.textContent = 'Convert to MP3';
+  }
+}
+
+/* ── Settings ── */
+async function loadSettings() {
+  try {
+    const res = await fetch('/api/get-settings');
+    const data = await res.json();
+    const el = document.getElementById('settings-downloads-dir');
+    if (el) el.value = data.downloads_dir || '';
+  } catch (e) { /* silent */ }
+}
+
+function showSettingsModal() {
+  loadSettings();
+  document.getElementById('settings-modal').classList.remove('hidden');
+}
+
+function closeSettingsModal() {
+  document.getElementById('settings-modal').classList.add('hidden');
+}
+
+async function saveSettings() {
+  const dir = document.getElementById('settings-downloads-dir').value.trim();
+  if (!dir) return;
+  const btn = document.getElementById('settings-save-btn');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/set-settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ downloads_dir: dir }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast('Error: ' + (data.error || 'Failed to save'));
+    } else {
+      document.getElementById('settings-downloads-dir').value = data.downloads_dir;
+      showToast('Settings saved');
+      closeSettingsModal();
+    }
+  } catch (e) {
+    showToast('Network error saving settings');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function resetDownloadsDir() {
+  // Reset to default ./downloads/ relative to app
+  document.getElementById('settings-downloads-dir').value = '';
+  showToast('Clear the field and save to reset to default');
 }
 
 /* ── History ── */

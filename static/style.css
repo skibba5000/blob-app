@@ -961,3 +961,68 @@ body {
   .main { padding: 16px 12px 40px; }
   .card { padding: 16px; }
 }
+
+/* ── Settings button (header) ── */
+.btn-settings {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-size: 1rem;
+  line-height: 1;
+  transition: color 0.15s, border-color 0.15s;
+}
+.btn-settings:hover { color: var(--text); border-color: var(--accent); }
+
+/* ── Settings modal ── */
+.settings-field { display: flex; flex-direction: column; gap: 8px; }
+.settings-label { font-weight: 600; color: var(--text); }
+.settings-hint { font-size: 0.85rem; color: var(--text-dim); }
+.settings-input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 0.9rem;
+  padding: 8px 12px;
+}
+.settings-input:focus { outline: none; border-color: var(--accent); }
+.settings-actions { display: flex; gap: 8px; margin-top: 4px; }
+
+/* ── Video resolution select in channel cards ── */
+.video-res-select {
+  margin-top: 4px;
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  padding: 3px 6px;
+  cursor: pointer;
+}
+.video-res-select:focus { outline: none; border-color: var(--accent); color: var(--text); }
+
+/* ── Action cell in formats table ── */
+.action-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.btn-video-only {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-video-only:hover { border-color: var(--accent); color: var(--text); }
+
+/* ── Convert to MP3 button on download card ── */
+.convert-mp3-btn {
+  margin-left: auto;
+  font-size: 0.78rem;
+  padding: 2px 10px;
+}

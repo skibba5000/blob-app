@@ -1,6 +1,8 @@
+import json
 import os
 import re
 import shutil
+import subprocess
 import threading
 import time
 import urllib.request as urlreq
@@ -25,6 +27,23 @@ except ImportError:
 
 app = Flask(__name__)
 
+# --- Config ---
+CONFIG_FILE = os.path.join(os.path.dirname(__file__), "blob_config.json")
+
+def _load_config():
+    try:
+        with open(CONFIG_FILE) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_config(cfg):
+    try:
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(cfg, f, indent=2)
+    except Exception:
+        pass
+
 # --- Shared state ---
 downloads_progress = {}
 download_history = []
@@ -33,8 +52,16 @@ scan_progress = {}
 scan_lock = threading.Lock()
 
 # --- Startup checks ---
-DOWNLOADS_DIR = os.path.join(os.path.dirname(__file__), "downloads")
+_cfg = _load_config()
+DOWNLOADS_DIR = _cfg.get("downloads_dir") or os.path.join(os.path.dirname(__file__), "downloads")
 os.makedirs(DOWNLOADS_DIR, exist_ok=True)
+
+def _update_downloads_dir(path):
+    global DOWNLOADS_DIR
+    os.makedirs(path, exist_ok=True)
+    DOWNLOADS_DIR = path
+    _save_config({"downloads_dir": path})
+
 FFMPEG_AVAILABLE = shutil.which("ffmpeg") is not None
 
 
@@ -171,52 +198,56 @@ def make_postprocessor_hook(download_id):
     return hook
 
 
-def run_download(download_id, url, format_id, title, resolution):
-    if True:
+def run_download(download_id, url, format_id, title, resolution, video_only=False):
+    dl_dir = DOWNLOADS_DIR
+    if video_only:
+        fmt_spec = format_id if format_id else "bestvideo/best"
+    else:
         fmt_spec = f"{format_id}+bestaudio/best" if format_id else "bestvideo+bestaudio/best"
-        ydl_opts = {
-            "format": fmt_spec,
-            "merge_output_format": "mp4",
-            "outtmpl": os.path.join(DOWNLOADS_DIR, "%(title)s.%(ext)s"),
-            "progress_hooks": [make_progress_hook(download_id, title)],
-            "postprocessor_hooks": [make_postprocessor_hook(download_id)],
-            "quiet": True,
-            "no_warnings": True,
-        }
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                filename = ydl.prepare_filename(info)
-                # yt-dlp may change extension to mp4 after merge
-                base = os.path.splitext(filename)[0]
-                for ext in [".mp4", ".mkv", ".webm"]:
-                    if os.path.exists(base + ext):
-                        filename = os.path.basename(base + ext)
-                        break
-                else:
-                    filename = os.path.basename(filename)
+    ydl_opts = {
+        "format": fmt_spec,
+        "merge_output_format": "mp4",
+        "outtmpl": os.path.join(dl_dir, "%(title)s.%(ext)s"),
+        "progress_hooks": [make_progress_hook(download_id, title)],
+        "postprocessor_hooks": [make_postprocessor_hook(download_id)],
+        "quiet": True,
+        "no_warnings": True,
+        "overwrites": True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            filename = ydl.prepare_filename(info)
+            # yt-dlp may change extension to mp4 after merge
+            base = os.path.splitext(filename)[0]
+            for ext in [".mp4", ".mkv", ".webm"]:
+                if os.path.exists(base + ext):
+                    filename = os.path.basename(base + ext)
+                    break
+            else:
+                filename = os.path.basename(filename)
 
-            filesize_raw = os.path.getsize(os.path.join(DOWNLOADS_DIR, filename)) if os.path.exists(os.path.join(DOWNLOADS_DIR, filename)) else 0
+        filesize_raw = os.path.getsize(os.path.join(dl_dir, filename)) if os.path.exists(os.path.join(dl_dir, filename)) else 0
 
-            with progress_lock:
-                downloads_progress[download_id]["status"] = "finished"
-                downloads_progress[download_id]["filename"] = filename
-                download_history.insert(0, {
-                    "title": title,
-                    "url": url,
-                    "resolution": resolution,
-                    "filesize": format_bytes(filesize_raw),
-                    "filename": filename,
-                    "completed_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                })
-        except yt_dlp.utils.DownloadError as e:
-            with progress_lock:
-                downloads_progress[download_id]["status"] = "error"
-                downloads_progress[download_id]["error"] = str(e).replace("ERROR: ", "")
-        except Exception as e:
-            with progress_lock:
-                downloads_progress[download_id]["status"] = "error"
-                downloads_progress[download_id]["error"] = str(e)
+        with progress_lock:
+            downloads_progress[download_id]["status"] = "finished"
+            downloads_progress[download_id]["filename"] = filename
+            download_history.insert(0, {
+                "title": title,
+                "url": url,
+                "resolution": resolution,
+                "filesize": format_bytes(filesize_raw),
+                "filename": filename,
+                "completed_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            })
+    except yt_dlp.utils.DownloadError as e:
+        with progress_lock:
+            downloads_progress[download_id]["status"] = "error"
+            downloads_progress[download_id]["error"] = str(e).replace("ERROR: ", "")
+    except Exception as e:
+        with progress_lock:
+            downloads_progress[download_id]["status"] = "error"
+            downloads_progress[download_id]["error"] = str(e)
 
 
 # --- Image scraping ---
@@ -495,6 +526,44 @@ def run_image_download(download_id, profile_url, profile_name, images, sleep_req
             })
 
 
+def run_convert_mp3(download_id, input_path, output_path):
+    """Convert a video file to MP3 using FFmpeg."""
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-q:a", "0", "-map", "a", output_path],
+            capture_output=True, text=True, timeout=600,
+        )
+        if result.returncode != 0:
+            err = result.stderr[-500:] if result.stderr else "FFmpeg conversion failed"
+            raise RuntimeError(err)
+
+        filesize_raw = os.path.getsize(output_path) if os.path.exists(output_path) else 0
+        out_filename = os.path.basename(output_path)
+
+        with progress_lock:
+            downloads_progress[download_id].update({
+                "status": "finished",
+                "percent": 100,
+                "filename": out_filename,
+                "filesize": format_bytes(filesize_raw),
+            })
+            download_history.insert(0, {
+                "title": out_filename,
+                "url": "",
+                "resolution": "MP3",
+                "filesize": format_bytes(filesize_raw),
+                "filename": out_filename,
+                "completed_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            })
+    except Exception as e:
+        with progress_lock:
+            downloads_progress[download_id].update({
+                "status": "error",
+                "percent": 0,
+                "error": str(e)[:300],
+            })
+
+
 # --- Routes ---
 
 @app.route("/")
@@ -548,10 +617,11 @@ def api_download():
     title = (data or {}).get("title", "video")
     resolution = (data or {}).get("resolution", "")
     needs_merge = (data or {}).get("needs_merge", False)
+    video_only = bool((data or {}).get("video_only", False))
 
     if not url:
         return jsonify({"error": "No URL provided"}), 400
-    if needs_merge and not FFMPEG_AVAILABLE:
+    if needs_merge and not video_only and not FFMPEG_AVAILABLE:
         return jsonify({"error": "This format requires FFmpeg to merge video and audio. Please install FFmpeg first."}), 400
 
     download_id = str(uuid.uuid4())
@@ -571,7 +641,7 @@ def api_download():
 
     thread = threading.Thread(
         target=run_download,
-        args=(download_id, url, format_id, title, resolution),
+        args=(download_id, url, format_id, title, resolution, video_only),
         daemon=True,
     )
     thread.start()
@@ -757,13 +827,15 @@ def run_channel_download(download_id, channel_name, videos):
                         downloads_progress[dl_id]["current_percent"] = 100
             return hook
 
+        fmt_spec = video.get("format_spec") or "bestvideo+bestaudio/best"
         ydl_opts = {
-            "format": "bestvideo+bestaudio/best",
+            "format": fmt_spec,
             "merge_output_format": "mp4",
             "outtmpl": os.path.join(DOWNLOADS_DIR, "%(title)s.%(ext)s"),
             "progress_hooks": [make_hook(download_id, i, total)],
             "quiet": True,
             "no_warnings": True,
+            "overwrites": True,
         }
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -923,9 +995,65 @@ def api_start_channel_downloads():
     return jsonify({"download_id": download_id})
 
 
+@app.route("/api/convert-to-mp3", methods=["POST"])
+def api_convert_to_mp3():
+    if not FFMPEG_AVAILABLE:
+        return jsonify({"error": "FFmpeg is not installed"}), 400
+    data = request.get_json()
+    filename = (data or {}).get("filename", "").strip()
+    if not filename:
+        return jsonify({"error": "No filename provided"}), 400
+
+    dl_dir = DOWNLOADS_DIR
+    input_path = filename if os.path.isabs(filename) else os.path.join(dl_dir, filename)
+    if not os.path.exists(input_path):
+        return jsonify({"error": f"File not found: {filename}"}), 404
+
+    base = os.path.splitext(input_path)[0]
+    output_path = base + ".mp3"
+    out_filename = os.path.basename(output_path)
+
+    download_id = str(uuid.uuid4())
+    with progress_lock:
+        downloads_progress[download_id] = {
+            "type": "convert",
+            "status": "converting",
+            "title": out_filename,
+            "percent": 50,
+            "filename": "",
+            "filesize": "",
+            "error": "",
+        }
+
+    threading.Thread(
+        target=run_convert_mp3,
+        args=(download_id, input_path, output_path),
+        daemon=True,
+    ).start()
+
+    return jsonify({"download_id": download_id})
+
+
+@app.route("/api/get-settings")
+def api_get_settings():
+    return jsonify({"downloads_dir": DOWNLOADS_DIR})
+
+
+@app.route("/api/set-settings", methods=["POST"])
+def api_set_settings():
+    data = request.get_json()
+    new_dir = (data or {}).get("downloads_dir", "").strip()
+    if not new_dir:
+        return jsonify({"error": "No directory provided"}), 400
+    try:
+        _update_downloads_dir(new_dir)
+    except Exception as e:
+        return jsonify({"error": f"Cannot use directory: {e}"}), 400
+    return jsonify({"ok": True, "downloads_dir": DOWNLOADS_DIR})
+
+
 @app.route("/api/open-downloads")
 def api_open_downloads():
-    import subprocess
     try:
         subprocess.Popen(["explorer", DOWNLOADS_DIR])
     except Exception:

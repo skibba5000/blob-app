@@ -12,7 +12,8 @@
       "Bash(gh auth:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''app.py''\\).read\\(\\)\\); print\\(''app.py syntax OK''\\)\")"
     ]
   }
 }
