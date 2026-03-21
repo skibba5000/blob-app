@@ -204,15 +204,30 @@ def run_download(download_id, url, format_id, title, resolution, video_only=Fals
         fmt_spec = format_id if format_id else "bestvideo/best"
     else:
         fmt_spec = f"{format_id}+bestaudio/best" if format_id else "bestvideo+bestaudio/best"
+
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    outtmpl = os.path.join(dl_dir, "%(title)s.%(ext)s")
+
+    # Pre-check: if the expected output file already exists, use a timestamped
+    # name so the existing file is kept intact (e.g. file open in a media player).
+    try:
+        with yt_dlp.YoutubeDL({"format": fmt_spec, "quiet": True, "no_warnings": True}) as ydl_check:
+            info_check = ydl_check.extract_info(url, download=False)
+            expected = ydl_check.prepare_filename(info_check)
+            base = os.path.splitext(expected)[0]
+            if any(os.path.exists(base + ext) for ext in [".mp4", ".mkv", ".webm", os.path.splitext(expected)[1]]):
+                outtmpl = os.path.join(dl_dir, f"%(title)s [{timestamp}].%(ext)s")
+    except Exception:
+        pass  # pre-check failed; proceed with default name
+
     ydl_opts = {
         "format": fmt_spec,
         "merge_output_format": "mp4",
-        "outtmpl": os.path.join(dl_dir, "%(title)s.%(ext)s"),
+        "outtmpl": outtmpl,
         "progress_hooks": [make_progress_hook(download_id, title)],
         "postprocessor_hooks": [make_postprocessor_hook(download_id)],
         "quiet": True,
         "no_warnings": True,
-        "overwrites": True,
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
