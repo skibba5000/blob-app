@@ -163,6 +163,14 @@ The settings gear button (⚙) in the header opens the Settings modal where user
 
 The `"convert"` type is used for MP3 conversion jobs. The progress bar shows at 50% with a pulse animation while converting, then turns green on completion. No `pct-` or `spd-` spans are rendered for convert cards.
 
+## Re-download behaviour — outtmpl must match in pre-check
+
+`run_download` does a pre-check (`extract_info(download=False)`) before the real download to detect whether the output file already exists. If it does, it switches to a timestamped outtmpl (`%(title)s [YYYYMMDD-HHMMSS].%(ext)s`) so the existing file is kept.
+
+**Critical gotcha:** the `YoutubeDL` instance used for the pre-check **must be given the same `outtmpl`** as the actual download (`%(title)s.%(ext)s`). If no `outtmpl` is passed, yt-dlp falls back to its built-in default (`%(title)s [%(id)s].%(ext)s`), and `prepare_filename` then returns a different base name (one that includes the video ID). The existence check misses the file on disk, the timestamped branch is skipped, and yt-dlp overwrites the original file.
+
+Also set `"overwrites": False` in the real download opts as a safety net so yt-dlp never silently clobbers a file even if the pre-check misses it.
+
 ## Video-only download
 
 When a video-only format row has `needs_merge: true`, a "Video only" button appears alongside "Download". Clicking it calls `startDownload(formatId, res, false, true)` which passes `video_only: true` to the backend. The backend uses just the format ID without appending `+bestaudio`, so no FFmpeg merge is needed. This lets users download video-only even without FFmpeg (e.g. to get a specific resolution without audio).
