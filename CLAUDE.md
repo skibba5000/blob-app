@@ -49,7 +49,7 @@ When `filesize` and `filesize_approx` are both missing, the app estimates size f
 | `/` | GET | Serve UI |
 | `/api/status` | GET | FFmpeg + gallery-dl availability + yt-dlp version |
 | `/api/formats` | POST | `{ url }` → video info + available formats |
-| `/api/download` | POST | `{ url, format_id, title, resolution, needs_merge }` → `{ download_id }` |
+| `/api/download` | POST | `{ url, format_id, title, resolution, needs_merge, video_only }` → `{ download_id }` |
 | `/api/progress/<id>` | GET | Current download progress |
 | `/api/history` | GET | Completed downloads list |
 | `/api/open-downloads` | GET | Opens `./downloads/` in Explorer |
@@ -57,7 +57,10 @@ When `filesize` and `filesize_approx` are both missing, the app estimates size f
 | `/api/scan-progress/<id>` | GET | Shared poll endpoint for image and channel scans; `status: scanning` returns lightweight progress (includes `scan_type`), `status: done` returns full result with `images` or `videos` |
 | `/api/download-images` | POST | `{ url, profile_name, images }` → `{ download_id }` |
 | `/api/scan-channel` | POST | `{ url }` → `{ scan_id }` — uses yt-dlp `extract_flat` to list channel/playlist videos; reuses `scan_progress` dict with `scan_type: "channel"` |
-| `/api/start-channel-downloads` | POST | `{ channel_name, videos: [{url, title}] }` → `{ download_id }` — sequential download, single progress card with per-video sub-progress |
+| `/api/start-channel-downloads` | POST | `{ channel_name, videos: [{url, title, format_spec}] }` → `{ download_id }` — sequential download, single progress card with per-video sub-progress |
+| `/api/convert-to-mp3` | POST | `{ filename }` → `{ download_id }` — converts an existing file in downloads dir to MP3 using FFmpeg; progress card type `"convert"` |
+| `/api/get-settings` | GET | Returns `{ downloads_dir }` |
+| `/api/set-settings` | POST | `{ downloads_dir }` → sets and persists new download folder to `blob_config.json` |
 
 ## Images mode (gallery-dl)
 
@@ -147,6 +150,30 @@ Channel progress entry structure:
 ```
 
 Channel videos land in `./downloads/` (flat, same as single video downloads).
+
+## Config / settings persistence
+
+App settings are stored in `blob_config.json` in the app root directory (next to `app.py`). Currently only `downloads_dir` is stored. The file is read at startup via `_load_config()` and written via `_save_config()`. If the file is missing or invalid, defaults are used silently.
+
+The settings gear button (⚙) in the header opens the Settings modal where users can change the download folder. The backend exposes `/api/get-settings` and `/api/set-settings`.
+
+## Download type discrimination
+
+`downloads_progress` entries have a `"type"` field with four possible values: `"video"`, `"images"`, `"channel"`, `"convert"`. The frontend `createDownloadCard`, `updateCardUI`, and `onDownloadFinished` all branch on this.
+
+The `"convert"` type is used for MP3 conversion jobs. The progress bar shows at 50% with a pulse animation while converting, then turns green on completion. No `pct-` or `spd-` spans are rendered for convert cards.
+
+## Video-only download
+
+When a video-only format row has `needs_merge: true`, a "Video only" button appears alongside "Download". Clicking it calls `startDownload(formatId, res, false, true)` which passes `video_only: true` to the backend. The backend uses just the format ID without appending `+bestaudio`, so no FFmpeg merge is needed. This lets users download video-only even without FFmpeg (e.g. to get a specific resolution without audio).
+
+## Tab URL memory
+
+`tabUrls` object (`{ video, images, channel }`) stores the URL input value for each tab. When `switchMode(mode)` is called, the current tab's URL is saved and the new tab's URL is restored.
+
+## Per-video quality in channel mode
+
+Each video card in the Channel grid has a `<select class="video-res-select">` dropdown (Best/4K/1440p/1080p/720p/480p/360p/Audio only). When "Download Selected" is clicked, the frontend reads each card's dropdown and builds a `format_spec` string (e.g. `bestvideo[height<=1080]+bestaudio/best[height<=1080]`) that is sent as `format_spec` on each video object. The backend `run_channel_download` uses `video.get("format_spec") or "bestvideo+bestaudio/best"`.
 
 ## Channel mode (yt-dlp extract_flat)
 
