@@ -206,12 +206,18 @@ def run_download(download_id, url, format_id, title, resolution, video_only=Fals
         fmt_spec = f"{format_id}+bestaudio/best" if format_id else "bestvideo+bestaudio/best"
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    outtmpl = os.path.join(dl_dir, "%(title)s.%(ext)s")
+    default_outtmpl = os.path.join(dl_dir, "%(title)s.%(ext)s")
+    outtmpl = default_outtmpl
 
     # Pre-check: if the expected output file already exists, use a timestamped
     # name so the existing file is kept intact (e.g. file open in a media player).
+    # Must pass the same outtmpl to the check instance so prepare_filename returns
+    # the same path we will actually download to — otherwise yt-dlp's default
+    # outtmpl (which includes the video ID) gives a different base name and the
+    # existence check misses the file on disk.
     try:
-        with yt_dlp.YoutubeDL({"format": fmt_spec, "quiet": True, "no_warnings": True}) as ydl_check:
+        check_opts = {"format": fmt_spec, "quiet": True, "no_warnings": True, "outtmpl": default_outtmpl}
+        with yt_dlp.YoutubeDL(check_opts) as ydl_check:
             info_check = ydl_check.extract_info(url, download=False)
             expected = ydl_check.prepare_filename(info_check)
             base = os.path.splitext(expected)[0]
@@ -228,6 +234,7 @@ def run_download(download_id, url, format_id, title, resolution, video_only=Fals
         "postprocessor_hooks": [make_postprocessor_hook(download_id)],
         "quiet": True,
         "no_warnings": True,
+        "overwrites": False,  # safety net: never silently overwrite an existing file
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
