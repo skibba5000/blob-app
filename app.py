@@ -44,6 +44,15 @@ def _save_config(cfg):
     except Exception:
         pass
 
+def _find_cookies_file():
+    """Return path to cookies.txt if present in app dir (checks double-extension too)."""
+    app_dir = os.path.dirname(__file__)
+    for name in ("cookies.txt", "cookies.txt.txt"):
+        path = os.path.join(app_dir, name)
+        if os.path.exists(path):
+            return path
+    return None
+
 # --- Shared state ---
 downloads_progress = {}
 download_history = []
@@ -236,7 +245,10 @@ def run_download(download_id, url, format_id, title, resolution, video_only=Fals
     # outtmpl (which includes the video ID) gives a different base name and the
     # existence check misses the file on disk.
     try:
-        check_opts = {"format": fmt_spec, "quiet": True, "no_warnings": True, "outtmpl": default_outtmpl, "extractor_args": {"youtube": {"player_client": ["android_creator", "tv_embedded", "web"]}}}
+        check_opts = {"format": fmt_spec, "quiet": True, "no_warnings": True, "outtmpl": default_outtmpl, "extractor_args": {"youtube": {"player_client": ["web_creator", "android", "web_safari"]}}}
+        _ck = _find_cookies_file()
+        if _ck:
+            check_opts["cookiefile"] = _ck
         with yt_dlp.YoutubeDL(check_opts) as ydl_check:
             info_check = ydl_check.extract_info(url, download=False)
             expected = ydl_check.prepare_filename(info_check)
@@ -255,8 +267,11 @@ def run_download(download_id, url, format_id, title, resolution, video_only=Fals
         "quiet": True,
         "no_warnings": True,
         "overwrites": False,  # safety net: never silently overwrite an existing file
-        "extractor_args": {"youtube": {"player_client": ["android_creator", "tv_embedded", "web"]}},
+        "extractor_args": {"youtube": {"player_client": ["web_creator", "android", "web_safari"]}},
     }
+    _ck = _find_cookies_file()
+    if _ck:
+        ydl_opts["cookiefile"] = _ck
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
@@ -348,15 +363,7 @@ def scan_profile_images(urls, max_images=10000, scan_id=None, sleep_request=0.0)
     gdl_config.clear()
 
     # Auto-load cookies.txt from app directory if present (Netscape format)
-    # Check both names — Windows often hides .txt extension, so users save "cookies.txt.txt"
-    app_dir = os.path.dirname(__file__)
-    cookies_file = None
-    for name in ("cookies.txt", "cookies.txt.txt"):
-        path = os.path.join(app_dir, name)
-        if os.path.exists(path):
-            cookies_file = path
-            break
-
+    cookies_file = _find_cookies_file()
     if cookies_file:
         print(f"[gallery-dl] Loading cookies from: {cookies_file}")
         gdl_config.set(("extractor",), "cookies", cookies_file)
@@ -633,8 +640,11 @@ def api_formats():
     ydl_opts = {
         "quiet": True,
         "no_warnings": True,
-        "extractor_args": {"youtube": {"player_client": ["android_creator", "tv_embedded", "web"]}},
+        "extractor_args": {"youtube": {"player_client": ["web_creator", "android", "web_safari"]}},
     }
+    _ck = _find_cookies_file()
+    if _ck:
+        ydl_opts["cookiefile"] = _ck
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -883,7 +893,11 @@ def run_channel_download(download_id, channel_name, videos):
             "quiet": True,
             "no_warnings": True,
             "overwrites": True,
+            "extractor_args": {"youtube": {"player_client": ["web_creator", "android", "web_safari"]}},
         }
+        _ck = _find_cookies_file()
+        if _ck:
+            ydl_opts["cookiefile"] = _ck
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
@@ -943,7 +957,11 @@ def api_scan_channel():
                 "no_warnings": True,
                 "extract_flat": "in_playlist",
                 "playlistend": max_videos,
+                "extractor_args": {"youtube": {"player_client": ["web_creator", "android", "web_safari"]}},
             }
+            _ck = _find_cookies_file()
+            if _ck:
+                ydl_opts["cookiefile"] = _ck
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
 
