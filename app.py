@@ -200,10 +200,30 @@ def make_postprocessor_hook(download_id):
 
 def run_download(download_id, url, format_id, title, resolution, video_only=False):
     dl_dir = DOWNLOADS_DIR
+
+    # Parse height from resolution string like "1080p" → "1080"
+    height = resolution.rstrip("p") if resolution and resolution.rstrip("p").isdigit() else None
+    res_filter = f"[height<={height}]" if height else ""
+
     if video_only:
-        fmt_spec = format_id if format_id else "bestvideo/best"
+        # Try exact format_id first, then fall back to resolution-filtered best video
+        fmt_spec = (
+            f"{format_id}/bestvideo{res_filter}/best"
+            if format_id else f"bestvideo{res_filter}/best"
+        )
     else:
-        fmt_spec = f"{format_id}+bestaudio/best" if format_id else "bestvideo+bestaudio/best"
+        # Try exact format_id + bestaudio first, then resolution-filtered fallbacks.
+        # This handles cases where the format_id from the listing session is not
+        # available in the download session (common with android_creator player client).
+        if format_id:
+            fmt_spec = (
+                f"{format_id}+bestaudio"
+                f"/bestvideo{res_filter}+bestaudio"
+                f"/best{res_filter}"
+                f"/best"
+            )
+        else:
+            fmt_spec = f"bestvideo{res_filter}+bestaudio/best{res_filter}/best"
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     default_outtmpl = os.path.join(dl_dir, "%(title)s.%(ext)s")
