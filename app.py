@@ -216,7 +216,7 @@ def run_download(download_id, url, format_id, title, resolution, video_only=Fals
     # outtmpl (which includes the video ID) gives a different base name and the
     # existence check misses the file on disk.
     try:
-        check_opts = {"format": fmt_spec, "quiet": True, "no_warnings": True, "outtmpl": default_outtmpl, "extractor_args": {"youtube": {"player_client": ["tv_embedded", "android", "web"]}}}
+        check_opts = {"format": fmt_spec, "quiet": True, "no_warnings": True, "outtmpl": default_outtmpl, "extractor_args": {"youtube": {"player_client": ["android_creator", "tv_embedded", "web"]}}}
         with yt_dlp.YoutubeDL(check_opts) as ydl_check:
             info_check = ydl_check.extract_info(url, download=False)
             expected = ydl_check.prepare_filename(info_check)
@@ -235,7 +235,7 @@ def run_download(download_id, url, format_id, title, resolution, video_only=Fals
         "quiet": True,
         "no_warnings": True,
         "overwrites": False,  # safety net: never silently overwrite an existing file
-        "extractor_args": {"youtube": {"player_client": ["tv_embedded", "android", "web"]}},
+        "extractor_args": {"youtube": {"player_client": ["android_creator", "tv_embedded", "web"]}},
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -613,7 +613,7 @@ def api_formats():
     ydl_opts = {
         "quiet": True,
         "no_warnings": True,
-        "extractor_args": {"youtube": {"player_client": ["tv_embedded", "android", "web"]}},
+        "extractor_args": {"youtube": {"player_client": ["android_creator", "tv_embedded", "web"]}},
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
