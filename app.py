@@ -245,10 +245,7 @@ def run_download(download_id, url, format_id, title, resolution, video_only=Fals
     # outtmpl (which includes the video ID) gives a different base name and the
     # existence check misses the file on disk.
     try:
-        check_opts = {"format": fmt_spec, "quiet": True, "no_warnings": True, "outtmpl": default_outtmpl, "extractor_args": {"youtube": {"player_client": ["web_creator", "android", "web_safari"]}}}
-        _ck = _find_cookies_file()
-        if _ck:
-            check_opts["cookiefile"] = _ck
+        check_opts = {"format": fmt_spec, "quiet": True, "no_warnings": True, "outtmpl": default_outtmpl, "extractor_args": {"youtube": {"player_client": ["android", "web_safari"]}}}
         with yt_dlp.YoutubeDL(check_opts) as ydl_check:
             info_check = ydl_check.extract_info(url, download=False)
             expected = ydl_check.prepare_filename(info_check)
@@ -267,11 +264,8 @@ def run_download(download_id, url, format_id, title, resolution, video_only=Fals
         "quiet": True,
         "no_warnings": True,
         "overwrites": False,  # safety net: never silently overwrite an existing file
-        "extractor_args": {"youtube": {"player_client": ["web_creator", "android", "web_safari"]}},
+        "extractor_args": {"youtube": {"player_client": ["android", "web_safari"]}},
     }
-    _ck = _find_cookies_file()
-    if _ck:
-        ydl_opts["cookiefile"] = _ck
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
@@ -640,11 +634,8 @@ def api_formats():
     ydl_opts = {
         "quiet": True,
         "no_warnings": True,
-        "extractor_args": {"youtube": {"player_client": ["web_creator", "android", "web_safari"]}},
+        "extractor_args": {"youtube": {"player_client": ["android", "web_safari"]}},
     }
-    _ck = _find_cookies_file()
-    if _ck:
-        ydl_opts["cookiefile"] = _ck
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -893,11 +884,8 @@ def run_channel_download(download_id, channel_name, videos):
             "quiet": True,
             "no_warnings": True,
             "overwrites": True,
-            "extractor_args": {"youtube": {"player_client": ["web_creator", "android", "web_safari"]}},
+            "extractor_args": {"youtube": {"player_client": ["android", "web_safari"]}},
         }
-        _ck = _find_cookies_file()
-        if _ck:
-            ydl_opts["cookiefile"] = _ck
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
@@ -957,11 +945,8 @@ def api_scan_channel():
                 "no_warnings": True,
                 "extract_flat": "in_playlist",
                 "playlistend": max_videos,
-                "extractor_args": {"youtube": {"player_client": ["web_creator", "android", "web_safari"]}},
+                "extractor_args": {"youtube": {"player_client": ["android", "web_safari"]}},
             }
-            _ck = _find_cookies_file()
-            if _ck:
-                ydl_opts["cookiefile"] = _ck
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
 
