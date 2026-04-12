@@ -44,15 +44,6 @@ def _save_config(cfg):
     except Exception:
         pass
 
-def _find_cookies_file():
-    """Return path to cookies.txt if present in app dir (checks double-extension too)."""
-    app_dir = os.path.dirname(__file__)
-    for name in ("cookies.txt", "cookies.txt.txt"):
-        path = os.path.join(app_dir, name)
-        if os.path.exists(path):
-            return path
-    return None
-
 # --- Shared state ---
 downloads_progress = {}
 download_history = []
@@ -209,30 +200,10 @@ def make_postprocessor_hook(download_id):
 
 def run_download(download_id, url, format_id, title, resolution, video_only=False):
     dl_dir = DOWNLOADS_DIR
-
-    # Parse height from resolution string like "1080p" → "1080"
-    height = resolution.rstrip("p") if resolution and resolution.rstrip("p").isdigit() else None
-    res_filter = f"[height<={height}]" if height else ""
-
     if video_only:
-        # Try exact format_id first, then fall back to resolution-filtered best video
-        fmt_spec = (
-            f"{format_id}/bestvideo{res_filter}/best"
-            if format_id else f"bestvideo{res_filter}/best"
-        )
+        fmt_spec = format_id if format_id else "bestvideo/best"
     else:
-        # Try exact format_id + bestaudio first, then resolution-filtered fallbacks.
-        # This handles cases where the format_id from the listing session is not
-        # available in the download session (common with android_creator player client).
-        if format_id:
-            fmt_spec = (
-                f"{format_id}+bestaudio"
-                f"/bestvideo{res_filter}+bestaudio"
-                f"/best{res_filter}"
-                f"/best"
-            )
-        else:
-            fmt_spec = f"bestvideo{res_filter}+bestaudio/best{res_filter}/best"
+        fmt_spec = f"{format_id}+bestaudio/best" if format_id else "bestvideo+bestaudio/best"
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     default_outtmpl = os.path.join(dl_dir, "%(title)s.%(ext)s")
@@ -245,7 +216,7 @@ def run_download(download_id, url, format_id, title, resolution, video_only=Fals
     # outtmpl (which includes the video ID) gives a different base name and the
     # existence check misses the file on disk.
     try:
-        check_opts = {"format": fmt_spec, "quiet": True, "no_warnings": True, "outtmpl": default_outtmpl, "extractor_args": {"youtube": {"player_client": ["android", "web_safari"]}}}
+        check_opts = {"format": fmt_spec, "quiet": True, "no_warnings": True, "outtmpl": default_outtmpl}
         with yt_dlp.YoutubeDL(check_opts) as ydl_check:
             info_check = ydl_check.extract_info(url, download=False)
             expected = ydl_check.prepare_filename(info_check)
@@ -264,7 +235,6 @@ def run_download(download_id, url, format_id, title, resolution, video_only=Fals
         "quiet": True,
         "no_warnings": True,
         "overwrites": False,  # safety net: never silently overwrite an existing file
-        "extractor_args": {"youtube": {"player_client": ["android", "web_safari"]}},
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -357,7 +327,15 @@ def scan_profile_images(urls, max_images=10000, scan_id=None, sleep_request=0.0)
     gdl_config.clear()
 
     # Auto-load cookies.txt from app directory if present (Netscape format)
-    cookies_file = _find_cookies_file()
+    # Check both names — Windows often hides .txt extension, so users save "cookies.txt.txt"
+    app_dir = os.path.dirname(__file__)
+    cookies_file = None
+    for name in ("cookies.txt", "cookies.txt.txt"):
+        path = os.path.join(app_dir, name)
+        if os.path.exists(path):
+            cookies_file = path
+            break
+
     if cookies_file:
         print(f"[gallery-dl] Loading cookies from: {cookies_file}")
         gdl_config.set(("extractor",), "cookies", cookies_file)
@@ -631,11 +609,7 @@ def api_formats():
     if not url:
         return jsonify({"error": "No URL provided"}), 400
 
-    ydl_opts = {
-        "quiet": True,
-        "no_warnings": True,
-        "extractor_args": {"youtube": {"player_client": ["android", "web_safari"]}},
-    }
+    ydl_opts = {"quiet": True, "no_warnings": True}
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -884,7 +858,6 @@ def run_channel_download(download_id, channel_name, videos):
             "quiet": True,
             "no_warnings": True,
             "overwrites": True,
-            "extractor_args": {"youtube": {"player_client": ["android", "web_safari"]}},
         }
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -945,7 +918,6 @@ def api_scan_channel():
                 "no_warnings": True,
                 "extract_flat": "in_playlist",
                 "playlistend": max_videos,
-                "extractor_args": {"youtube": {"player_client": ["android", "web_safari"]}},
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
